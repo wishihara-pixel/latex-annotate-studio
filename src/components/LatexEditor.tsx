@@ -10,14 +10,12 @@ import "katex/dist/katex.min.css";
 
 export const LatexEditor = () => {
   const [question, setQuestion] = useState(
-    localStorage.getItem("question") || 
-    "**Question:** A 19-cm length of wire is carrying a current perpendicular to a 4.1-T magnetic field and experiences a force of 7.6 mN. What is the current in the wire?"
+    localStorage.getItem("question") || ""
   );
   const [renderedQuestion, setRenderedQuestion] = useState("");
   
   const [latexCode, setLatexCode] = useState(
-    localStorage.getItem("latexCode") || 
-    "# Example LaTeX Document\n\nThis is a sample document with LaTeX support.\n\n## Inline Math\nThe equation (E = mc^2) shows mass-energy equivalence.\n\n## Display Math\n\\[\n\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}\n\\]\n\n## Custom Parentheses Syntax\nScientific notation: (3.4 \\times 10^{-7})\n\nText formatting: (\\text{Hello World})\n\n**Try selecting text to add annotations!**"
+    localStorage.getItem("latexCode") || ""
   );
   const [renderedHtml, setRenderedHtml] = useState("");
   const [comments, setComments] = useState<Comment[]>([]);
@@ -485,8 +483,8 @@ export const LatexEditor = () => {
               <Textarea
                 value={latexCode}
                 onChange={(e) => setLatexCode(e.target.value)}
-                className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0"
-                placeholder="Type your LaTeX here..."
+                className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
+                placeholder="Enter trace excerpt..."
               />
             </div>
 
