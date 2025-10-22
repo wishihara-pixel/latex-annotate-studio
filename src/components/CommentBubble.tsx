@@ -8,7 +8,7 @@ import { Comment, CommentType } from "@/types/comment";
 
 interface CommentBubbleProps {
   position: { top: number; left: number };
-  onSubmit: (comment: Omit<Comment, "id" | "text" | "timestamp">) => void;
+  onSubmit: (comment: Omit<Comment, "id" | "text" | "timestamp" | "range">) => void;
   onClose: () => void;
 }
 

@@ -150,6 +150,23 @@ All colors MUST be HSL.
   box-shadow: 0 0 0 2px hsl(var(--accent));
 }
 
+/* Temporary highlight styling - simple yellow */
+.latex-highlight-temp {
+  background: hsl(var(--highlight));
+  padding: 2px 0;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  display: inline;
+  line-height: inherit;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.latex-highlight-temp:hover {
+  background: hsl(var(--highlight-active));
+}
+
 /* Prose styling for preview */
 .prose {
   @apply text-foreground;

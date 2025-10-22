@@ -3,28 +3,38 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Edit2, Check, X, MessageSquare } from "lucide-react";
+import { Trash2, Edit2, Check, X, MessageSquare, Copy } from "lucide-react";
 import { Comment, CommentType } from "@/types/comment";
 import { cn } from "@/lib/utils";
 
 interface CommentsSidebarProps {
   comments: Comment[];
   activeCommentId: string | null;
+  showAnnotationForm: boolean;
   onCommentClick: (id: string) => void;
   onDeleteComment: (id: string) => void;
   onUpdateComment: (id: string, updates: Partial<Comment>) => void;
+  onAddComment: (comment: Omit<Comment, "id" | "text" | "timestamp" | "range">) => void;
+  onCloseAnnotationForm: () => void;
 }
 
 export const CommentsSidebar = ({
   comments,
   activeCommentId,
+  showAnnotationForm,
   onCommentClick,
   onDeleteComment,
   onUpdateComment,
+  onAddComment,
+  onCloseAnnotationForm,
 }: CommentsSidebarProps) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editType, setEditType] = useState<CommentType | "">("");
   const [editFields, setEditFields] = useState<string[]>([]);
+
+  // Annotation form state
+  const [annotationType, setAnnotationType] = useState<CommentType | "">("");
+  const [annotationFields, setAnnotationFields] = useState<string[]>([]);
 
   const getCommentTypeLabel = (type: CommentType) => {
     const labels = {
@@ -64,6 +74,37 @@ export const CommentsSidebar = ({
     cancelEditing();
   };
 
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      // You could add a toast notification here if you want
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  const handleAnnotationTypeChange = (value: CommentType) => {
+    setAnnotationType(value);
+    const fieldCount = {
+      voq: 5,
+      strength: 1,
+      improvement: 2,
+      other: 1,
+    }[value];
+    setAnnotationFields(new Array(fieldCount).fill(""));
+  };
+
+  const handleAnnotationSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!annotationType) return;
+
+    onAddComment({ type: annotationType, data: annotationFields });
+    setAnnotationType("");
+    setAnnotationFields([]);
+    // Don't call onCloseAnnotationForm - handleAddComment already closes the form
+    // Calling it here causes a race condition with stale state
+  };
+
   const renderCommentContent = (comment: Comment) => {
     const fieldConfigs = {
       voq: ["Tool", "Query", "URL", "Source", "Reasoning"],
@@ -77,9 +118,22 @@ export const CommentsSidebar = ({
     return (
       <div className="space-y-2 text-xs">
         {comment.data.map((value, i) => (
-          <div key={i}>
-            <span className="font-semibold text-foreground">{labels[i]}:</span>{" "}
-            <span className="text-muted-foreground">{value}</span>
+          <div key={i} className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <span className="font-semibold text-foreground">{labels[i]}:</span>{" "}
+              <span className="text-muted-foreground break-words">{value}</span>
+            </div>
+            {value && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 flex-shrink-0 opacity-60 hover:opacity-100"
+                onClick={() => copyToClipboard(value)}
+                title="Copy to clipboard"
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+            )}
           </div>
         ))}
       </div>
@@ -121,7 +175,20 @@ export const CommentsSidebar = ({
 
         {configs.map((config, i) => (
           <div key={i} className="space-y-1">
-            <label className="text-xs font-medium">{config.label}</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium">{config.label}</label>
+              {editFields[i] && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 opacity-60 hover:opacity-100"
+                  onClick={() => copyToClipboard(editFields[i])}
+                  title="Copy to clipboard"
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
             {config.multiline ? (
               <Textarea
                 value={editFields[i] || ""}
@@ -168,14 +235,192 @@ export const CommentsSidebar = ({
       </div>
 
       <div className="overflow-auto max-h-[calc(100vh-12rem)] p-4 space-y-3">
-        {comments.length === 0 ? (
+        {showAnnotationForm && (
+          <div className="bg-accent/10 border border-accent rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Add Annotation</h3>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={onCloseAnnotationForm}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <form onSubmit={handleAnnotationSubmit} className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground">Type</label>
+                <Select value={annotationType} onValueChange={handleAnnotationTypeChange}>
+                  <SelectTrigger className="text-sm">
+                    <SelectValue placeholder="Select type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="voq">Verification of Quality</SelectItem>
+                    <SelectItem value="strength">Strength</SelectItem>
+                    <SelectItem value="improvement">Area of Improvement</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {annotationType && (
+                <div className="space-y-2">
+                  {annotationType === "voq" && (
+                    <>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Verification Tool</label>
+                        <Input
+                          value={annotationFields[0] || ""}
+                          onChange={(e) => {
+                            const newFields = [...annotationFields];
+                            newFields[0] = e.target.value;
+                            setAnnotationFields(newFields);
+                          }}
+                          placeholder="Enter tool name"
+                          className="text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Exact Query</label>
+                        <Input
+                          value={annotationFields[1] || ""}
+                          onChange={(e) => {
+                            const newFields = [...annotationFields];
+                            newFields[1] = e.target.value;
+                            setAnnotationFields(newFields);
+                          }}
+                          placeholder="Enter query"
+                          className="text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">URL</label>
+                        <Input
+                          value={annotationFields[2] || ""}
+                          onChange={(e) => {
+                            const newFields = [...annotationFields];
+                            newFields[2] = e.target.value;
+                            setAnnotationFields(newFields);
+                          }}
+                          placeholder="Enter URL"
+                          className="text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Source Excerpt</label>
+                        <Textarea
+                          value={annotationFields[3] || ""}
+                          onChange={(e) => {
+                            const newFields = [...annotationFields];
+                            newFields[3] = e.target.value;
+                            setAnnotationFields(newFields);
+                          }}
+                          placeholder="Enter source excerpt"
+                          className="min-h-[60px] text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Reasoning Trace</label>
+                        <Textarea
+                          value={annotationFields[4] || ""}
+                          onChange={(e) => {
+                            const newFields = [...annotationFields];
+                            newFields[4] = e.target.value;
+                            setAnnotationFields(newFields);
+                          }}
+                          placeholder="Enter reasoning trace"
+                          className="min-h-[60px] text-sm"
+                        />
+                      </div>
+                    </>
+                  )}
+                  {annotationType === "strength" && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium">Strength Description</label>
+                      <Textarea
+                        value={annotationFields[0] || ""}
+                        onChange={(e) => {
+                          const newFields = [...annotationFields];
+                          newFields[0] = e.target.value;
+                          setAnnotationFields(newFields);
+                        }}
+                        placeholder="Explain the strength"
+                        className="min-h-[60px] text-sm"
+                      />
+                    </div>
+                  )}
+                  {annotationType === "improvement" && (
+                    <>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Excerpt</label>
+                        <Textarea
+                          value={annotationFields[0] || ""}
+                          onChange={(e) => {
+                            const newFields = [...annotationFields];
+                            newFields[0] = e.target.value;
+                            setAnnotationFields(newFields);
+                          }}
+                          placeholder="Enter excerpt"
+                          className="min-h-[60px] text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Explanation</label>
+                        <Textarea
+                          value={annotationFields[1] || ""}
+                          onChange={(e) => {
+                            const newFields = [...annotationFields];
+                            newFields[1] = e.target.value;
+                            setAnnotationFields(newFields);
+                          }}
+                          placeholder="Explain the improvement"
+                          className="min-h-[60px] text-sm"
+                        />
+                      </div>
+                    </>
+                  )}
+                  {annotationType === "other" && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium">Comment</label>
+                      <Textarea
+                        value={annotationFields[0] || ""}
+                        onChange={(e) => {
+                          const newFields = [...annotationFields];
+                          newFields[0] = e.target.value;
+                          setAnnotationFields(newFields);
+                        }}
+                        placeholder="Enter your comment"
+                        className="min-h-[60px] text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" size="sm" onClick={onCloseAnnotationForm}>
+                  Cancel
+                </Button>
+                <Button type="submit" size="sm" disabled={!annotationType}>
+                  Add
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {comments.filter(c => c.data.length > 0 && c.data.some(d => d && d.trim())).length === 0 && !showAnnotationForm ? (
           <div className="text-center py-8 text-sm text-muted-foreground">
             <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
             <p>No annotations yet</p>
             <p className="text-xs mt-1">Select text to add one</p>
           </div>
         ) : (
-          comments.map((comment) => (
+          comments
+            .filter(c => c.data.length > 0 && c.data.some(d => d && d.trim())) // Only show completed comments
+            .map((comment) => (
             <div
               key={comment.id}
               data-comment-id={comment.id}
@@ -222,8 +467,17 @@ export const CommentsSidebar = ({
                 </div>
               </div>
 
-              <div className="text-xs font-medium mb-2 p-2 bg-[hsl(var(--highlight))]/20 rounded">
-                "{comment.text}"
+              <div className="text-xs font-medium mb-2 p-2 bg-[hsl(var(--highlight))]/20 rounded flex items-start justify-between gap-2">
+                <span className="flex-1">"{comment.text}"</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 flex-shrink-0 opacity-60 hover:opacity-100"
+                  onClick={() => copyToClipboard(comment.text)}
+                  title="Copy highlighted text"
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
               </div>
 
               {editingId === comment.id ? renderEditForm(comment) : renderCommentContent(comment)}
