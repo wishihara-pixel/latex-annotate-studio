@@ -1,73 +1,106 @@
-# Welcome to your Lovable project
+# LaTeX Annotator Studio
 
-## Project info
+Professional LaTeX editor with inline annotations, real-time rendering, and collaborative commenting features.
 
-**URL**: https://lovable.dev/projects/eaf64d44-4347-4ed1-a044-b4843b515c63
+## Features
 
-## How can I edit this code?
+✨ **Real-time LaTeX Rendering**
+- Inline math with `\( \)` or custom `( )` syntax
+- Display math with `\[ \]`
+- Automatic LaTeX detection for commands and expressions
 
-There are several ways of editing your application.
+📝 **Annotation System**
+- Highlight any text in the preview
+- Add structured annotations (VOQ, Strength, Improvement, Other)
+- Persistent storage with localStorage
+- Interactive highlights linking to comments
 
-**Use Lovable**
+🎨 **Modern UI**
+- Clean, responsive design
+- Syntax highlighting in editor
+- Beautiful math rendering with KaTeX
+- Dark mode support
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/eaf64d44-4347-4ed1-a044-b4843b515c63) and start prompting.
+## Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+### Installation
 
-**Use your preferred IDE**
+```bash
+npm install
+```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Development
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Open http://localhost:8080 in your browser.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Build for Production
 
-**Use GitHub Codespaces**
+```bash
+npm run build
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+The optimized build will be in the `dist/` directory.
 
-## What technologies are used for this project?
+### Preview Production Build
 
-This project is built with:
+```bash
+npm run preview
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Deployment
 
-## How can I deploy this project?
+### Deploy to Vercel
 
-Simply open [Lovable](https://lovable.dev/projects/eaf64d44-4347-4ed1-a044-b4843b515c63) and click on Share -> Publish.
+1. Push your code to GitHub
+2. Import your repository at [vercel.com/new](https://vercel.com/new)
+3. Click Deploy - Vercel auto-detects Vite configuration
+4. Your app will be live with automatic deployments on every push!
 
-## Can I connect a custom domain to my Lovable project?
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed instructions.
 
-Yes, you can!
+## Usage
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+1. **Write LaTeX** in the editor with markdown formatting
+2. **Preview** renders in real-time with beautiful typography
+3. **Select text** in the preview to add annotations
+4. **Click the + button** to create a new annotation
+5. **Fill in details** based on annotation type
+6. **Annotations persist** across sessions via localStorage
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Tech Stack
+
+- **React** - UI framework
+- **TypeScript** - Type safety
+- **Vite** - Build tool
+- **TailwindCSS** - Styling
+- **shadcn/ui** - Component library
+- **KaTeX** - LaTeX rendering
+- **Lucide** - Icons
+
+## Project Structure
+
+```
+src/
+├── components/
+│   ├── LatexEditor.tsx         # Main editor component
+│   ├── CommentsSidebar.tsx     # Annotations panel
+│   ├── AddAnnotationButton.tsx # Floating add button
+│   └── ui/                     # shadcn/ui components
+├── lib/
+│   ├── latex-renderer.ts       # LaTeX processing & highlighting
+│   └── utils.ts                # Utility functions
+└── types/
+    └── comment.ts              # TypeScript interfaces
+```
+
+## License
+
+MIT
+
+## Contributing
+
+Contributions welcome! Feel free to open issues or submit pull requests.
