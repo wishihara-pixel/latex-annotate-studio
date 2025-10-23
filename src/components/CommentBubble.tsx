@@ -72,6 +72,27 @@ export const CommentBubble = ({ position, onSubmit, onClose }: CommentBubbleProp
             placeholder={config.placeholder}
             className="min-h-[60px] text-sm"
           />
+        ) : type === "voq" && i === 0 ? (
+          <Select
+            value={fields[i] || ""}
+            onValueChange={(value) => {
+              const newFields = [...fields];
+              newFields[i] = value;
+              setFields(newFields);
+            }}
+          >
+            <SelectTrigger className="text-sm">
+              <SelectValue placeholder="Select verification tool..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Perplexity">Perplexity</SelectItem>
+              <SelectItem value="Google">Google</SelectItem>
+              <SelectItem value="Gemini">Gemini</SelectItem>
+              <SelectItem value="Calculator">Calculator</SelectItem>
+              <SelectItem value="Code Executor">Code Executor</SelectItem>
+              <SelectItem value="Other">Other</SelectItem>
+            </SelectContent>
+          </Select>
         ) : (
           <Input
             value={fields[i] || ""}

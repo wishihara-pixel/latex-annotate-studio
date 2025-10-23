@@ -271,16 +271,26 @@ export const CommentsSidebar = ({
                     <>
                       <div className="space-y-1">
                         <label className="text-xs font-medium">Verification Tool</label>
-                        <Input
+                        <Select
                           value={annotationFields[0] || ""}
-                          onChange={(e) => {
+                          onValueChange={(value) => {
                             const newFields = [...annotationFields];
-                            newFields[0] = e.target.value;
+                            newFields[0] = value;
                             setAnnotationFields(newFields);
                           }}
-                          placeholder="Enter tool name"
-                          className="text-sm"
-                        />
+                        >
+                          <SelectTrigger className="text-sm">
+                            <SelectValue placeholder="Select verification tool..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Perplexity">Perplexity</SelectItem>
+                            <SelectItem value="Google">Google</SelectItem>
+                            <SelectItem value="Gemini">Gemini</SelectItem>
+                            <SelectItem value="Calculator">Calculator</SelectItem>
+                            <SelectItem value="Code Executor">Code Executor</SelectItem>
+                            <SelectItem value="Other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs font-medium">Exact Query</label>
