@@ -374,20 +374,23 @@ export const LatexEditor = () => {
 
     const rect = rects[0];
     const previewRect = previewRef.current.getBoundingClientRect();
-
-    // ========================================
-    // 🔧 MANUAL BUTTON POSITION ADJUSTMENT
-    // ========================================
-    // Adjust these numbers to move the button:
-    const MANUAL_VERTICAL_OFFSET = 700;  // 👈 Change this! Positive = move down, Negative = move up
-    const BUTTON_RIGHT_MARGIN = -220;     // 👈 Distance from right edge (default 50px)
-    // Position calculation
     const scrollTop = previewRef.current.scrollTop;
-    const previewPadding = 24; // p-6 class = 24px padding
+    
+    // Calculate Y position: the button should align with the TOP of the selected text
+    // rect.top is viewport coords, previewRect.top is preview's viewport coords
+    // Subtracting gives us position relative to preview container
+    // Add scrollTop to account for scrolled content within the preview
+    const relativeTop = rect.top - previewRect.top + scrollTop;
+    
+    // Calculate X position: place button on the right side
+    // Use previewRect.width minus a margin to position from the right edge
+    const buttonWidth = 32; // Button is h-8 w-8 = 32px
+    const rightMargin = -5; // Some spacing from edge to avoid cutoff
+    const relativeLeft = previewRect.width - buttonWidth - rightMargin;
     
     setButtonPosition({
-      top: rect.top - previewRect.top + scrollTop + previewPadding + MANUAL_VERTICAL_OFFSET,
-      left: previewRect.width - BUTTON_RIGHT_MARGIN,
+      top: relativeTop,
+      left: relativeLeft,
     });
 
     setSelectedRange(range.cloneRange());
@@ -677,7 +680,7 @@ export const LatexEditor = () => {
                 )}
 
                 {/* Trace Preview */}
-                <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                <div className="rounded-xl border border-border bg-card shadow-lg overflow-visible">
                   <div className="border-b border-border bg-secondary/30 px-4 py-3 flex items-center justify-between">
                     <h2 className="text-sm font-semibold text-foreground">Trace Preview</h2>
                     {!showTraceEditor1 && (
@@ -691,22 +694,23 @@ export const LatexEditor = () => {
                       </Button>
                     )}
                   </div>
-                  <div
-                    ref={previewRef1}
-                    className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] relative overflow-auto prose prose-sm max-w-none"
-                    onMouseDown={handleMouseDown}
-                    onMouseUp={handleMouseUp}
-                    dangerouslySetInnerHTML={{ __html: renderedTrace1 }}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                  
-                  {showAddButton && activeTrace === "1" && (
-                    <AddAnnotationButton
-                      position={buttonPosition}
-                      onClick={handleAddAnnotationClick}
-                      onClose={handleCloseAddButton}
+                  <div className="relative overflow-visible">
+                    <div
+                      ref={previewRef1}
+                      className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] overflow-auto prose prose-sm max-w-none"
+                      onMouseDown={handleMouseDown}
+                      onMouseUp={handleMouseUp}
+                      dangerouslySetInnerHTML={{ __html: renderedTrace1 }}
+                      onClick={(e) => e.stopPropagation()}
                     />
-                  )}
+                    {showAddButton && activeTrace === "1" && (
+                      <AddAnnotationButton
+                        position={buttonPosition}
+                        onClick={handleAddAnnotationClick}
+                        onClose={handleCloseAddButton}
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -784,7 +788,7 @@ export const LatexEditor = () => {
                 )}
 
                 {/* Trace Preview */}
-                <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                <div className="rounded-xl border border-border bg-card shadow-lg overflow-visible">
                   <div className="border-b border-border bg-secondary/30 px-4 py-3 flex items-center justify-between">
                     <h2 className="text-sm font-semibold text-foreground">Trace Preview</h2>
                     {!showTraceEditor2 && (
@@ -798,22 +802,23 @@ export const LatexEditor = () => {
                       </Button>
                     )}
                   </div>
-                  <div
-                    ref={previewRef2}
-                    className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] relative overflow-auto prose prose-sm max-w-none"
-                    onMouseDown={handleMouseDown}
-                    onMouseUp={handleMouseUp}
-                    dangerouslySetInnerHTML={{ __html: renderedTrace2 }}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                  
-                  {showAddButton && activeTrace === "2" && (
-                    <AddAnnotationButton
-                      position={buttonPosition}
-                      onClick={handleAddAnnotationClick}
-                      onClose={handleCloseAddButton}
+                  <div className="relative overflow-visible">
+                    <div
+                      ref={previewRef2}
+                      className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] overflow-auto prose prose-sm max-w-none"
+                      onMouseDown={handleMouseDown}
+                      onMouseUp={handleMouseUp}
+                      dangerouslySetInnerHTML={{ __html: renderedTrace2 }}
+                      onClick={(e) => e.stopPropagation()}
                     />
-                  )}
+                    {showAddButton && activeTrace === "2" && (
+                      <AddAnnotationButton
+                        position={buttonPosition}
+                        onClick={handleAddAnnotationClick}
+                        onClose={handleCloseAddButton}
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
 

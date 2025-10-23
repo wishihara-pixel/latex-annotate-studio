@@ -10,10 +10,11 @@ interface AddAnnotationButtonProps {
 export const AddAnnotationButton = ({ position, onClick, onClose }: AddAnnotationButtonProps) => {
   return (
     <div
-      className="absolute z-50 animate-in fade-in zoom-in-95 duration-200"
+      className="absolute animate-in fade-in zoom-in-95 duration-200"
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
+        zIndex: 9999,
       }}
       onClick={(e) => e.stopPropagation()}
     >
