@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { renderLatex } from "@/lib/latex-renderer";
 import { CommentBubble } from "./CommentBubble";
 import { AddAnnotationButton } from "./AddAnnotationButton";
 import { CommentsSidebar } from "./CommentsSidebar";
 import { Comment } from "@/types/comment";
+import { downloadSuperAnnotateJSON, downloadRawAnnotations } from "@/lib/export-superannotate";
+import { Download } from "lucide-react";
 import "katex/dist/katex.min.css";
 
 export const LatexEditor = () => {
@@ -14,11 +17,24 @@ export const LatexEditor = () => {
   );
   const [renderedQuestion, setRenderedQuestion] = useState("");
   
-  const [latexCode, setLatexCode] = useState(
-    localStorage.getItem("latexCode") || ""
+  // Active response tab (1 or 2)
+  const [activeResponse, setActiveResponse] = useState<"1" | "2">("1");
+  
+  // Response 1 state
+  const [latexCode1, setLatexCode1] = useState(
+    localStorage.getItem("latexCode_response1") || ""
   );
-  const [renderedHtml, setRenderedHtml] = useState("");
-  const [comments, setComments] = useState<Comment[]>([]);
+  const [renderedHtml1, setRenderedHtml1] = useState("");
+  const [comments1, setComments1] = useState<Comment[]>([]);
+  
+  // Response 2 state
+  const [latexCode2, setLatexCode2] = useState(
+    localStorage.getItem("latexCode_response2") || ""
+  );
+  const [renderedHtml2, setRenderedHtml2] = useState("");
+  const [comments2, setComments2] = useState<Comment[]>([]);
+  
+  // Shared UI state
   const [showAddButton, setShowAddButton] = useState(false);
   const [showAnnotationForm, setShowAnnotationForm] = useState(false);
   const [buttonPosition, setButtonPosition] = useState({ top: 0, left: 0 });
@@ -28,73 +44,112 @@ export const LatexEditor = () => {
   const [isSelectingText, setIsSelectingText] = useState(false);
   const [showQuestionEditor, setShowQuestionEditor] = useState(false);
   
-  const previewRef = useRef<HTMLDivElement>(null);
+  const previewRef1 = useRef<HTMLDivElement>(null);
+  const previewRef2 = useRef<HTMLDivElement>(null);
+  
+  // Get current active response data
+  const latexCode = activeResponse === "1" ? latexCode1 : latexCode2;
+  const setLatexCode = activeResponse === "1" ? setLatexCode1 : setLatexCode2;
+  const renderedHtml = activeResponse === "1" ? renderedHtml1 : renderedHtml2;
+  const setRenderedHtml = activeResponse === "1" ? setRenderedHtml1 : setRenderedHtml2;
+  const comments = activeResponse === "1" ? comments1 : comments2;
+  const setComments = activeResponse === "1" ? setComments1 : setComments2;
+  const previewRef = activeResponse === "1" ? previewRef1 : previewRef2;
 
-  useEffect(() => {
-    console.log("=== Mount effect - loading comments from localStorage ===");
-    const stored = localStorage.getItem("latexComments");
-    if (stored) {
-      const parsedComments = JSON.parse(stored);
-      console.log("Loaded from localStorage:", parsedComments);
-      
-      // Clean up incomplete comments aggressively
-      // Only keep comments that have VALID data
-      const now = Date.now();
-      const ONE_MINUTE = 60 * 1000; // Reduced from 5 minutes to 1 minute
-      
-      const migratedComments = parsedComments
-        .filter((comment: any) => {
-          // Check if comment is incomplete (empty or blank data)
-          const isIncomplete = !comment.data || comment.data.length === 0 || !comment.data.some((d: string) => d && d.trim());
-          
-          if (isIncomplete) {
-            // Only keep if it's VERY recent (less than 1 minute old)
-            const age = now - (comment.timestamp || 0);
-            if (age > ONE_MINUTE) {
-              console.log("🗑️ Removing old incomplete comment:", comment.id, "age:", Math.round(age / 1000), "seconds");
-              return false;
-            } else {
-              console.log("⏳ Keeping very recent incomplete comment:", comment.id, "age:", Math.round(age / 1000), "seconds");
-              return true;
-            }
-          }
-          
-          // Additional validation: must have valid text and range
-          if (!comment.text || !comment.text.trim()) {
-            console.log("🗑️ Removing comment with no text:", comment.id);
+  // Helper function to clean up incomplete comments
+  const cleanupComments = (parsedComments: any[], sourceText: string) => {
+    const now = Date.now();
+    const ONE_MINUTE = 60 * 1000;
+    
+    return parsedComments
+      .filter((comment: any) => {
+        const isIncomplete = !comment.data || comment.data.length === 0 || !comment.data.some((d: string) => d && d.trim());
+        
+        if (isIncomplete) {
+          const age = now - (comment.timestamp || 0);
+          if (age > ONE_MINUTE) {
+            console.log("🗑️ Removing old incomplete comment:", comment.id);
             return false;
           }
-          
-          return true;
-        })
-        .map((comment: any) => {
-          if (!comment.range || comment.range.start === undefined || comment.range.end === undefined) {
-            // For existing comments without proper range, try to find it in the source
-            const currentCode = localStorage.getItem("latexCode") || "";
-            const index = currentCode.indexOf(comment.text);
-            if (index !== -1) {
-              return {
-                ...comment,
-                range: { start: index, end: index + comment.text.length }
-              };
-            } else {
-              // Can't find the text, skip this comment
-              console.warn("Could not migrate comment, text not found in source:", comment.text);
-              return null;
-            }
+        }
+        
+        if (!comment.text || !comment.text.trim()) {
+          console.log("🗑️ Removing comment with no text:", comment.id);
+          return false;
+        }
+        
+        return true;
+      })
+      .map((comment: any) => {
+        if (!comment.range || comment.range.start === undefined || comment.range.end === undefined) {
+          const index = sourceText.indexOf(comment.text);
+          if (index !== -1) {
+            return {
+              ...comment,
+              range: { start: index, end: index + comment.text.length }
+            };
+          } else {
+            console.warn("Could not migrate comment:", comment.text);
+            return null;
           }
-          return comment;
-        })
-        .filter((comment: any) => comment !== null);
-      console.log("After cleanup:", migratedComments);
-      setComments(migratedComments);
-      // Save cleaned comments back to localStorage
-      if (migratedComments.length !== parsedComments.length) {
-        console.log("Saving cleaned comments back to localStorage");
-        localStorage.setItem("latexComments", JSON.stringify(migratedComments));
+        }
+        return comment;
+      })
+      .filter((comment: any) => comment !== null);
+  };
+
+  useEffect(() => {
+    console.log("=== Mount effect - loading comments for both responses ===");
+    
+    // 🔄 MIGRATION: Copy old single-response data to Response 1 (one-time)
+    const oldLatexCode = localStorage.getItem("latexCode");
+    const oldComments = localStorage.getItem("latexComments");
+    const hasNewFormat = localStorage.getItem("latexCode_response1") || localStorage.getItem("latexCode_response2");
+    
+    if ((oldLatexCode || oldComments) && !hasNewFormat) {
+      console.log("🔄 Migrating old data to Response 1...");
+      
+      // Migrate LaTeX code
+      if (oldLatexCode && !localStorage.getItem("latexCode_response1")) {
+        localStorage.setItem("latexCode_response1", oldLatexCode);
+        setLatexCode1(oldLatexCode);
+        console.log("✓ Migrated LaTeX code to Response 1");
       }
-    } else {
-      console.log("No comments in localStorage");
+      
+      // Migrate comments
+      if (oldComments && !localStorage.getItem("latexComments_response1")) {
+        localStorage.setItem("latexComments_response1", oldComments);
+        console.log("✓ Migrated comments to Response 1");
+      }
+      
+      // Clean up old keys
+      localStorage.removeItem("latexCode");
+      localStorage.removeItem("latexComments");
+      console.log("✓ Migration complete, old keys removed");
+    }
+    
+    // Load Response 1 comments
+    const stored1 = localStorage.getItem("latexComments_response1");
+    if (stored1) {
+      const parsedComments1 = JSON.parse(stored1);
+      const cleaned1 = cleanupComments(parsedComments1, latexCode1);
+      console.log("Loaded Response 1 comments:", cleaned1.length);
+      setComments1(cleaned1);
+      if (cleaned1.length !== parsedComments1.length) {
+        localStorage.setItem("latexComments_response1", JSON.stringify(cleaned1));
+      }
+    }
+    
+    // Load Response 2 comments
+    const stored2 = localStorage.getItem("latexComments_response2");
+    if (stored2) {
+      const parsedComments2 = JSON.parse(stored2);
+      const cleaned2 = cleanupComments(parsedComments2, latexCode2);
+      console.log("Loaded Response 2 comments:", cleaned2.length);
+      setComments2(cleaned2);
+      if (cleaned2.length !== parsedComments2.length) {
+        localStorage.setItem("latexComments_response2", JSON.stringify(cleaned2));
+      }
     }
   }, []);
 
@@ -104,16 +159,21 @@ export const LatexEditor = () => {
     setRenderedQuestion(html);
   }, [question]);
 
+  // Render Response 1
   useEffect(() => {
-    console.log("=== Rendering effect triggered ===");
-    console.log("Comments count:", comments.length);
-    console.log("Comments:", comments);
-    localStorage.setItem("latexCode", latexCode);
-    // Pass ALL comments to the renderer (including pending ones being filled out)
-    // Ghost highlights are cleaned up on mount, so this is safe
-    const html = renderLatex(latexCode, comments);
-    setRenderedHtml(html);
-  }, [latexCode, comments]);
+    console.log("=== Rendering Response 1 ===");
+    localStorage.setItem("latexCode_response1", latexCode1);
+    const html = renderLatex(latexCode1, comments1);
+    setRenderedHtml1(html);
+  }, [latexCode1, comments1]);
+
+  // Render Response 2
+  useEffect(() => {
+    console.log("=== Rendering Response 2 ===");
+    localStorage.setItem("latexCode_response2", latexCode2);
+    const html = renderLatex(latexCode2, comments2);
+    setRenderedHtml2(html);
+  }, [latexCode2, comments2]);
 
   useEffect(() => {
     if (previewRef.current) {
@@ -122,11 +182,17 @@ export const LatexEditor = () => {
   }, [renderedHtml]);
 
   const saveComments = (newComments: Comment[]) => {
-    console.log("=== saveComments called ===");
+    console.log("=== saveComments called for Response", activeResponse, "===");
     console.log("Saving comments:", newComments);
-    setComments(newComments);
-    localStorage.setItem("latexComments", JSON.stringify(newComments));
-    console.log("Saved to localStorage:", localStorage.getItem("latexComments"));
+    const storageKey = `latexComments_response${activeResponse}`;
+    
+    if (activeResponse === "1") {
+      setComments1(newComments);
+    } else {
+      setComments2(newComments);
+    }
+    localStorage.setItem(storageKey, JSON.stringify(newComments));
+    console.log("Saved to localStorage:", storageKey);
   };
 
   const getSourcePositionFromSelection = (range: Range): { start: number; end: number } | null => {
@@ -430,13 +496,37 @@ export const LatexEditor = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/20">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
-        <header className="mb-8">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent mb-2">
-            LaTeX Annotator
-          </h1>
-          <p className="text-muted-foreground">
-            Write LaTeX, render beautifully, annotate precisely
-          </p>
+        <header className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent mb-2">
+              LaTeX Annotator
+            </h1>
+            <p className="text-muted-foreground">
+              Write LaTeX, render beautifully, annotate precisely
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadRawAnnotations(comments, latexCode, `annotations-response${activeResponse}-raw.json`)}
+              disabled={comments.length === 0}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export JSON (Response {activeResponse})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadSuperAnnotateJSON(comments, latexCode, `annotations-response${activeResponse}-superannotate.json`)}
+              disabled={comments.length === 0}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export SA (Response {activeResponse})
+            </Button>
+          </div>
         </header>
 
         {/* Question Reference Section */}
@@ -474,54 +564,117 @@ export const LatexEditor = () => {
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr,320px] gap-6" onClick={handleClickOutside}>
-          <div className="space-y-6">
-            <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
-              <div className="border-b border-border bg-secondary/30 px-4 py-3">
-                <h2 className="text-sm font-semibold text-foreground">Editor</h2>
+        {/* Response Tabs */}
+        <Tabs value={activeResponse} onValueChange={(v) => setActiveResponse(v as "1" | "2")} className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="1">Response 1</TabsTrigger>
+            <TabsTrigger value="2">Response 2</TabsTrigger>
+          </TabsList>
+
+          {/* Response 1 Content */}
+          <TabsContent value="1" className="mt-0">
+            <div className="grid lg:grid-cols-[1fr,320px] gap-6" onClick={handleClickOutside}>
+              <div className="space-y-6">
+                <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                  <div className="border-b border-border bg-secondary/30 px-4 py-3">
+                    <h2 className="text-sm font-semibold text-foreground">Editor</h2>
+                  </div>
+                  <Textarea
+                    value={latexCode1}
+                    onChange={(e) => setLatexCode1(e.target.value)}
+                    className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
+                    placeholder="Enter trace excerpt..."
+                  />
+                </div>
+
+                <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                  <div className="border-b border-border bg-secondary/30 px-4 py-3">
+                    <h2 className="text-sm font-semibold text-foreground">Preview</h2>
+                  </div>
+                  <div
+                    ref={previewRef1}
+                    className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] relative overflow-auto prose prose-sm max-w-none"
+                    onMouseDown={handleMouseDown}
+                    onMouseUp={handleMouseUp}
+                    dangerouslySetInnerHTML={{ __html: renderedHtml1 }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  
+                  {showAddButton && activeResponse === "1" && (
+                    <AddAnnotationButton
+                      position={buttonPosition}
+                      onClick={handleAddAnnotationClick}
+                      onClose={handleCloseAddButton}
+                    />
+                  )}
+                </div>
               </div>
-              <Textarea
-                value={latexCode}
-                onChange={(e) => setLatexCode(e.target.value)}
-                className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
-                placeholder="Enter trace excerpt..."
+
+              <CommentsSidebar
+                comments={comments1}
+                activeCommentId={activeCommentId}
+                showAnnotationForm={showAnnotationForm}
+                onCommentClick={handleCommentClick}
+                onDeleteComment={handleDeleteComment}
+                onUpdateComment={handleUpdateComment}
+                onAddComment={handleAddComment}
+                onCloseAnnotationForm={handleCloseAnnotationForm}
               />
             </div>
+          </TabsContent>
 
-            <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
-              <div className="border-b border-border bg-secondary/30 px-4 py-3">
-                <h2 className="text-sm font-semibold text-foreground">Preview</h2>
+          {/* Response 2 Content */}
+          <TabsContent value="2" className="mt-0">
+            <div className="grid lg:grid-cols-[1fr,320px] gap-6" onClick={handleClickOutside}>
+              <div className="space-y-6">
+                <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                  <div className="border-b border-border bg-secondary/30 px-4 py-3">
+                    <h2 className="text-sm font-semibold text-foreground">Editor</h2>
+                  </div>
+                  <Textarea
+                    value={latexCode2}
+                    onChange={(e) => setLatexCode2(e.target.value)}
+                    className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
+                    placeholder="Enter trace excerpt..."
+                  />
+                </div>
+
+                <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                  <div className="border-b border-border bg-secondary/30 px-4 py-3">
+                    <h2 className="text-sm font-semibold text-foreground">Preview</h2>
+                  </div>
+                  <div
+                    ref={previewRef2}
+                    className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] relative overflow-auto prose prose-sm max-w-none"
+                    onMouseDown={handleMouseDown}
+                    onMouseUp={handleMouseUp}
+                    dangerouslySetInnerHTML={{ __html: renderedHtml2 }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  
+                  {showAddButton && activeResponse === "2" && (
+                    <AddAnnotationButton
+                      position={buttonPosition}
+                      onClick={handleAddAnnotationClick}
+                      onClose={handleCloseAddButton}
+                    />
+                  )}
+                </div>
               </div>
-              <div
-                ref={previewRef}
-                className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] relative overflow-auto prose prose-sm max-w-none"
-                onMouseDown={handleMouseDown}
-                onMouseUp={handleMouseUp}
-                dangerouslySetInnerHTML={{ __html: renderedHtml }}
-                onClick={(e) => e.stopPropagation()}
-              />
-              
-              {showAddButton && (
-                <AddAnnotationButton
-                  position={buttonPosition}
-                  onClick={handleAddAnnotationClick}
-                  onClose={handleCloseAddButton}
-                />
-              )}
-            </div>
-          </div>
 
-          <CommentsSidebar
-            comments={comments}
-            activeCommentId={activeCommentId}
-            showAnnotationForm={showAnnotationForm}
-            onCommentClick={handleCommentClick}
-            onDeleteComment={handleDeleteComment}
-            onUpdateComment={handleUpdateComment}
-            onAddComment={handleAddComment}
-            onCloseAnnotationForm={handleCloseAnnotationForm}
-          />
-        </div>
+              <CommentsSidebar
+                comments={comments2}
+                activeCommentId={activeCommentId}
+                showAnnotationForm={showAnnotationForm}
+                onCommentClick={handleCommentClick}
+                onDeleteComment={handleDeleteComment}
+                onUpdateComment={handleUpdateComment}
+                onAddComment={handleAddComment}
+                onCloseAnnotationForm={handleCloseAnnotationForm}
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
