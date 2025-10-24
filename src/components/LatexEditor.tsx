@@ -248,11 +248,55 @@ export const LatexEditor = () => {
     
     console.log('Mapping selection to source. Selected text:', selectedText.substring(0, 100));
     
-    // Strategy 1: Try exact match in source
-    let index = traceCode.indexOf(selectedText);
-    if (index !== -1) {
-      console.log('Found exact match in source at position:', index);
-      return { start: index, end: index + selectedText.length };
+    // Get the text BEFORE the selection to use as context
+    const previewElement = previewRef.current;
+    if (!previewElement) return null;
+    
+    // Create a range from the start of the preview to the start of the selection
+    const fullRange = document.createRange();
+    fullRange.setStart(previewElement, 0);
+    fullRange.setEnd(range.startContainer, range.startOffset);
+    const textBeforeSelection = fullRange.toString();
+    
+    console.log('Text before selection (first 100 chars):', textBeforeSelection.substring(Math.max(0, textBeforeSelection.length - 100)));
+    
+    // Try to find the selected text in the source, using the preceding text as context
+    // Look for the occurrence that has similar preceding text
+    let bestMatch = -1;
+    let bestScore = -1;
+    let searchStart = 0;
+    
+    while (true) {
+      const index = traceCode.indexOf(selectedText, searchStart);
+      if (index === -1) break;
+      
+      // Get text before this occurrence in the source
+      const contextLength = Math.min(200, index);
+      const sourceContext = traceCode.substring(index - contextLength, index);
+      const selectionContext = textBeforeSelection.substring(Math.max(0, textBeforeSelection.length - contextLength));
+      
+      // Calculate similarity score (how much of the context matches)
+      let score = 0;
+      const minLen = Math.min(sourceContext.length, selectionContext.length);
+      for (let i = 1; i <= minLen; i++) {
+        if (sourceContext[sourceContext.length - i] === selectionContext[selectionContext.length - i]) {
+          score++;
+        } else {
+          break;
+        }
+      }
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = index;
+      }
+      
+      searchStart = index + 1;
+    }
+    
+    if (bestMatch !== -1) {
+      console.log('Found best match in source at position:', bestMatch, 'with score:', bestScore);
+      return { start: bestMatch, end: bestMatch + selectedText.length };
     }
     
     // Strategy 2: Find a significant unique substring
@@ -277,8 +321,7 @@ export const LatexEditor = () => {
     const lastWord = words[words.length - 1];
     
     // Search for last word starting from first word position
-    const searchStart = firstWordIndex;
-    const lastWordIndex = traceCode.indexOf(lastWord, searchStart);
+    const lastWordIndex = traceCode.indexOf(lastWord, firstWordIndex);
     
     if (lastWordIndex === -1) {
       console.warn('Could not find last word in source:', lastWord);
