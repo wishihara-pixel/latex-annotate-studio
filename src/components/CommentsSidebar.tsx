@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,6 +31,7 @@ export const CommentsSidebar = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editType, setEditType] = useState<CommentType | "">("");
   const [editFields, setEditFields] = useState<string[]>([]);
+  const annotationFormRef = useRef<HTMLDivElement>(null);
 
   // Annotation form state
   const [annotationType, setAnnotationType] = useState<CommentType | "">("");
@@ -82,6 +83,19 @@ export const CommentsSidebar = ({
       console.error('Failed to copy text: ', err);
     }
   };
+
+  // Auto-scroll to annotation form when it opens
+  useEffect(() => {
+    if (showAnnotationForm && annotationFormRef.current) {
+      // Small delay to ensure the form is rendered
+      setTimeout(() => {
+        annotationFormRef.current?.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'nearest' 
+        });
+      }, 100);
+    }
+  }, [showAnnotationForm]);
 
   const handleAnnotationTypeChange = (value: CommentType) => {
     setAnnotationType(value);
@@ -498,7 +512,7 @@ export const CommentsSidebar = ({
 
         {/* Add Annotation Form - now at the bottom */}
         {showAnnotationForm && (
-          <div className="bg-accent/10 border border-accent rounded-lg p-4 space-y-3">
+          <div ref={annotationFormRef} className="bg-accent/10 border border-accent rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Add Annotation</h3>
               <Button

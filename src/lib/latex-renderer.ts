@@ -48,8 +48,9 @@ const applyHighlightsToSource = (text: string, comments: Comment[]): { text: str
     const highlighted = result.substring(start, end);
     const after = result.substring(end);
 
-    // Insert highlight markers that will survive the rendering process
-    result = `${before}<<<HIGHLIGHT_START:${comment.id}>>>${highlighted}<<<HIGHLIGHT_END:${comment.id}>>>${after}`;
+    // Insert highlight markers using a format that won't trigger LaTeX/markdown processing
+    // Using @@@ instead of <<< to avoid being caught by regex patterns
+    result = `${before}@@@HLSTART_${comment.id}@@@${highlighted}@@@HLEND_${comment.id}@@@${after}`;
   });
 
   return { text: result, textBasedComments: textBased };
@@ -124,7 +125,7 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
   // Store them and replace with safe placeholders
   // Use a format that won't be touched by markdown or LaTeX: XXXHIGHLIGHTXXX
   const protectedMarkers: Array<{ commentId: string; content: string }> = [];
-  text = highlightedText.replace(/<<<HIGHLIGHT_START:([^>]+)>>>([\s\S]*?)<<<HIGHLIGHT_END:\1>>>/g, (match, commentId, content) => {
+  text = highlightedText.replace(/@@@HLSTART_([^@]+)@@@([\s\S]*?)@@@HLEND_\1@@@/g, (match, commentId, content) => {
     const index = protectedMarkers.length;
     protectedMarkers.push({ commentId, content });
     return `XXXHIGHLIGHTPLACEHOLDERXXX${index}XXXENDXXX`;
@@ -276,12 +277,12 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
   console.log('After restoration, remaining placeholders:', (text.match(/XXXHIGHLIGHTPLACEHOLDERXXX\d+XXXENDXXX/g) || []).length);
   
   // Safety cleanup: Remove any remaining unconverted markers
-  const remainingStart = text.match(/<<<HIGHLIGHT_START:[^>]+>>>/g);
-  const remainingEnd = text.match(/<<<HIGHLIGHT_END:[^>]+>>>/g);
+  const remainingStart = text.match(/@@@HLSTART_[^@]+@@@/g);
+  const remainingEnd = text.match(/@@@HLEND_[^@]+@@@/g);
   if (remainingStart || remainingEnd) {
     console.warn('Found unconverted markers:', { start: remainingStart, end: remainingEnd });
-    text = text.replace(/<<<HIGHLIGHT_START:[^>]+>>>/g, '');
-    text = text.replace(/<<<HIGHLIGHT_END:[^>]+>>>/g, '');
+    text = text.replace(/@@@HLSTART_[^@]+@@@/g, '');
+    text = text.replace(/@@@HLEND_[^@]+@@@/g, '');
   }
 
   // Apply text-based highlights for comments that couldn't be mapped to source
