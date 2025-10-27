@@ -1,45 +1,51 @@
 import { useState, useRef, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { renderLatex } from "@/lib/latex-renderer";
-import { CommentBubble } from "./CommentBubble";
 import { AddAnnotationButton } from "./AddAnnotationButton";
 import { CommentsSidebar } from "./CommentsSidebar";
 import { Comment } from "@/types/comment";
 import { downloadSuperAnnotateJSON, downloadRawAnnotations } from "@/lib/export-superannotate";
 import { Download } from "lucide-react";
+import { useProjects } from "@/hooks/use-projects";
 import "katex/dist/katex.min.css";
 
 export const LatexEditor = () => {
-  const [question, setQuestion] = useState(
-    localStorage.getItem("question") || ""
-  );
+  const {
+    activeProject,
+    activeProjectId,
+    updateProject,
+    updateProjectQuestion,
+    updateProjectTrace,
+  } = useProjects();
+
+  // Fallback if no project
+  const question = activeProject?.question || "";
+  const setQuestion = (newQuestion: string) => {
+    if (activeProjectId) {
+      updateProjectQuestion(activeProjectId, newQuestion);
+    }
+  };
+
   const [renderedQuestion, setRenderedQuestion] = useState("");
   
-  // Active trace tab (1 or 2)
-  const [activeTrace, setActiveTrace] = useState<"1" | "2">("1");
+  // Active response tab (1 or 2)
+  const [activeResponse, setActiveResponse] = useState<"1" | "2">("1");
   
-  // Trace 1 state
-  const [response1, setResponse1] = useState(
-    localStorage.getItem("response_trace1") || ""
-  );
+  // Response 1 state (the model's response text, separate from trace)
+  const [response1, setResponse1] = useState("");
   const [renderedResponse1, setRenderedResponse1] = useState("");
-  const [traceCode1, setTraceCode1] = useState(
-    localStorage.getItem("traceCode_trace1") || ""
-  );
-  const [renderedTrace1, setRenderedTrace1] = useState("");
+  const [latexCode1, setLatexCode1] = useState("");
+  const [renderedHtml1, setRenderedHtml1] = useState("");
   const [comments1, setComments1] = useState<Comment[]>([]);
   
-  // Trace 2 state
-  const [response2, setResponse2] = useState(
-    localStorage.getItem("response_trace2") || ""
-  );
+  // Response 2 state
+  const [response2, setResponse2] = useState("");
   const [renderedResponse2, setRenderedResponse2] = useState("");
-  const [traceCode2, setTraceCode2] = useState(
-    localStorage.getItem("traceCode_trace2") || ""
-  );
-  const [renderedTrace2, setRenderedTrace2] = useState("");
+  const [latexCode2, setLatexCode2] = useState("");
+  const [renderedHtml2, setRenderedHtml2] = useState("");
   const [comments2, setComments2] = useState<Comment[]>([]);
   
   // Shared UI state
@@ -58,295 +64,131 @@ export const LatexEditor = () => {
   
   const previewRef1 = useRef<HTMLDivElement>(null);
   const previewRef2 = useRef<HTMLDivElement>(null);
+  const isInitialLoadRef = useRef(true);
   
-  // Get current active trace data
-  const response = activeTrace === "1" ? response1 : response2;
-  const setResponse = activeTrace === "1" ? setResponse1 : setResponse2;
-  const renderedResponse = activeTrace === "1" ? renderedResponse1 : renderedResponse2;
-  const setRenderedResponse = activeTrace === "1" ? setRenderedResponse1 : setRenderedResponse2;
-  const showResponseEditor = activeTrace === "1" ? showResponseEditor1 : showResponseEditor2;
-  const setShowResponseEditor = activeTrace === "1" ? setShowResponseEditor1 : setShowResponseEditor2;
-  const traceCode = activeTrace === "1" ? traceCode1 : traceCode2;
-  const setTraceCode = activeTrace === "1" ? setTraceCode1 : setTraceCode2;
-  const renderedTrace = activeTrace === "1" ? renderedTrace1 : renderedTrace2;
-  const setRenderedTrace = activeTrace === "1" ? setRenderedTrace1 : setRenderedTrace2;
-  const comments = activeTrace === "1" ? comments1 : comments2;
-  const setComments = activeTrace === "1" ? setComments1 : setComments2;
-  const previewRef = activeTrace === "1" ? previewRef1 : previewRef2;
+  // Get current active response data
+  const latexCode = activeResponse === "1" ? latexCode1 : latexCode2;
+  const setLatexCode = activeResponse === "1" ? setLatexCode1 : setLatexCode2;
+  const renderedHtml = activeResponse === "1" ? renderedHtml1 : renderedHtml2;
+  const comments = activeResponse === "1" ? comments1 : comments2;
+  const setComments = activeResponse === "1" ? setComments1 : setComments2;
+  const previewRef = activeResponse === "1" ? previewRef1 : previewRef2;
 
-  // Helper function to clean up incomplete comments
-  const cleanupComments = (parsedComments: any[], sourceText: string) => {
-    const now = Date.now();
-    const ONE_MINUTE = 60 * 1000;
+  // Load project data
+  useEffect(() => {
+    if (!activeProject) return;
+
+    console.log("Loading project data:", activeProject.name);
     
-    return parsedComments
-      .filter((comment: any) => {
-        const isIncomplete = !comment.data || comment.data.length === 0 || !comment.data.some((d: string) => d && d.trim());
-        
-        if (isIncomplete) {
-          const age = now - (comment.timestamp || 0);
-          if (age > ONE_MINUTE) {
-            console.log("🗑️ Removing old incomplete comment:", comment.id);
-            return false;
-          }
-        }
-        
-        if (!comment.text || !comment.text.trim()) {
-          console.log("🗑️ Removing comment with no text:", comment.id);
-          return false;
-        }
-        
-        return true;
-      })
-      .map((comment: any) => {
-        if (!comment.range || comment.range.start === undefined || comment.range.end === undefined) {
-          const index = sourceText.indexOf(comment.text);
-          if (index !== -1) {
-            return {
-              ...comment,
-              range: { start: index, end: index + comment.text.length }
-            };
-          } else {
-            console.warn("Could not migrate comment:", comment.text);
-            return null;
-          }
-        }
-        return comment;
-      })
-      .filter((comment: any) => comment !== null);
-  };
+    // Prevent saving while loading new project data
+    isInitialLoadRef.current = true;
+
+    // Load trace 1 data
+    const trace1 = activeProject.traces.find(t => t.id === "trace1");
+    if (trace1) {
+      console.log("Loading trace1 - comments:", trace1.comments.length);
+      setLatexCode1(trace1.traceCode);
+      setComments1(trace1.comments);
+      setResponse1(trace1.response);
+    }
+
+    // Load trace 2 data
+    const trace2 = activeProject.traces.find(t => t.id === "trace2");
+    if (trace2) {
+      console.log("Loading trace2 - comments:", trace2.comments.length);
+      setLatexCode2(trace2.traceCode);
+      setComments2(trace2.comments);
+      setResponse2(trace2.response);
+    }
+    
+    // Mark initial load as complete after a short delay
+    setTimeout(() => {
+      isInitialLoadRef.current = false;
+    }, 100);
+  }, [activeProject]);
 
   useEffect(() => {
-    console.log("=== Mount effect - loading comments for both traces ===");
-    
-    // 🔄 MIGRATION: Copy old response data to Trace 1 (one-time)
-    const oldLatexCode1 = localStorage.getItem("latexCode_response1");
-    const oldLatexCode2 = localStorage.getItem("latexCode_response2");
-    const oldComments1 = localStorage.getItem("latexComments_response1");
-    const oldComments2 = localStorage.getItem("latexComments_response2");
-    const hasNewFormat = localStorage.getItem("traceCode_trace1") || localStorage.getItem("traceCode_trace2");
-    
-    if ((oldLatexCode1 || oldLatexCode2 || oldComments1 || oldComments2) && !hasNewFormat) {
-      console.log("🔄 Migrating old response data to new trace format...");
-      
-      // Migrate Trace 1
-      if (oldLatexCode1) {
-        localStorage.setItem("traceCode_trace1", oldLatexCode1);
-        setTraceCode1(oldLatexCode1);
-        console.log("✓ Migrated trace code to Trace 1");
-      }
-      if (oldComments1) {
-        localStorage.setItem("latexComments_trace1", oldComments1);
-        console.log("✓ Migrated comments to Trace 1");
-      }
-      
-      // Migrate Trace 2
-      if (oldLatexCode2) {
-        localStorage.setItem("traceCode_trace2", oldLatexCode2);
-        setTraceCode2(oldLatexCode2);
-        console.log("✓ Migrated trace code to Trace 2");
-      }
-      if (oldComments2) {
-        localStorage.setItem("latexComments_trace2", oldComments2);
-        console.log("✓ Migrated comments to Trace 2");
-      }
-      
-      // Clean up old keys
-      localStorage.removeItem("latexCode_response1");
-      localStorage.removeItem("latexCode_response2");
-      localStorage.removeItem("latexComments_response1");
-      localStorage.removeItem("latexComments_response2");
-      console.log("✓ Migration complete, old keys removed");
-    }
-    
-    // Load Trace 1 comments
-    const stored1 = localStorage.getItem("latexComments_trace1");
-    if (stored1) {
-      const parsedComments1 = JSON.parse(stored1);
-      const cleaned1 = cleanupComments(parsedComments1, traceCode1);
-      console.log("Loaded Trace 1 comments:", cleaned1.length);
-      setComments1(cleaned1);
-      if (cleaned1.length !== parsedComments1.length) {
-        localStorage.setItem("latexComments_trace1", JSON.stringify(cleaned1));
-      }
-    }
-    
-    // Load Trace 2 comments
-    const stored2 = localStorage.getItem("latexComments_trace2");
-    if (stored2) {
-      const parsedComments2 = JSON.parse(stored2);
-      const cleaned2 = cleanupComments(parsedComments2, traceCode2);
-      console.log("Loaded Trace 2 comments:", cleaned2.length);
-      setComments2(cleaned2);
-      if (cleaned2.length !== parsedComments2.length) {
-        localStorage.setItem("latexComments_trace2", JSON.stringify(cleaned2));
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("question", question);
     const html = renderLatex(question, []);
     setRenderedQuestion(html);
   }, [question]);
 
-  // Render Response 1
+  // Render Response 1 (the text response)
   useEffect(() => {
-    localStorage.setItem("response_trace1", response1);
     const html = renderLatex(response1, []);
     setRenderedResponse1(html);
   }, [response1]);
 
-  // Render Response 2
+  // Render Response 2 (the text response)
   useEffect(() => {
-    localStorage.setItem("response_trace2", response2);
     const html = renderLatex(response2, []);
     setRenderedResponse2(html);
   }, [response2]);
 
   // Render Trace 1
   useEffect(() => {
-    console.log("=== Rendering Trace 1 ===");
-    localStorage.setItem("traceCode_trace1", traceCode1);
-    const html = renderLatex(traceCode1, comments1);
-    setRenderedTrace1(html);
-  }, [traceCode1, comments1]);
+    console.log("Rendering Trace 1 with", comments1.length, "comments");
+    const html = renderLatex(latexCode1, comments1);
+    setRenderedHtml1(html);
+  }, [latexCode1, comments1]);
 
   // Render Trace 2
   useEffect(() => {
-    console.log("=== Rendering Trace 2 ===");
-    localStorage.setItem("traceCode_trace2", traceCode2);
-    const html = renderLatex(traceCode2, comments2);
-    setRenderedTrace2(html);
-  }, [traceCode2, comments2]);
+    console.log("Rendering Trace 2 with", comments2.length, "comments");
+    const html = renderLatex(latexCode2, comments2);
+    setRenderedHtml2(html);
+  }, [latexCode2, comments2]);
+
+  // Save changes back to project (skip during initial load)
+  useEffect(() => {
+    if (!activeProjectId || !activeProject || isInitialLoadRef.current) return;
+    
+    console.log("Saving trace1 - comments:", comments1.length);
+    updateProjectTrace(activeProjectId, "trace1", {
+      traceCode: latexCode1,
+      comments: comments1,
+      response: response1,
+    });
+  }, [latexCode1, comments1, response1, activeProjectId]);
+
+  useEffect(() => {
+    if (!activeProjectId || !activeProject || isInitialLoadRef.current) return;
+    
+    console.log("Saving trace2 - comments:", comments2.length);
+    updateProjectTrace(activeProjectId, "trace2", {
+      traceCode: latexCode2,
+      comments: comments2,
+      response: response2,
+    });
+  }, [latexCode2, comments2, response2, activeProjectId]);
 
   useEffect(() => {
     if (previewRef.current) {
       attachHighlightListeners();
     }
-  }, [renderedTrace]);
+  }, [renderedHtml]);
 
   const saveComments = (newComments: Comment[]) => {
-    console.log("=== saveComments called for Trace", activeTrace, "===");
-    console.log("Saving comments:", newComments);
-    const storageKey = `latexComments_trace${activeTrace}`;
-    
-    if (activeTrace === "1") {
+    if (activeResponse === "1") {
       setComments1(newComments);
     } else {
       setComments2(newComments);
     }
-    localStorage.setItem(storageKey, JSON.stringify(newComments));
-    console.log("Saved to localStorage:", storageKey);
   };
 
   const getSourcePositionFromSelection = (range: Range): { start: number; end: number } | null => {
-    // Get the plain text content from the selection
     const selectedText = range.toString().trim();
-    
     if (!selectedText) return null;
     
-    console.log('Mapping selection to source. Selected text:', selectedText.substring(0, 100));
-    
-    // Get the text BEFORE the selection to use as context
-    const previewElement = previewRef.current;
-    if (!previewElement) return null;
-    
-    // Create a range from the start of the preview to the start of the selection
-    const fullRange = document.createRange();
-    fullRange.setStart(previewElement, 0);
-    fullRange.setEnd(range.startContainer, range.startOffset);
-    const textBeforeSelection = fullRange.toString();
-    
-    console.log('Text before selection (first 100 chars):', textBeforeSelection.substring(Math.max(0, textBeforeSelection.length - 100)));
-    
-    // Try to find the selected text in the source, using the preceding text as context
-    // Look for the occurrence that has similar preceding text
-    let bestMatch = -1;
-    let bestScore = -1;
-    let searchStart = 0;
-    
-    while (true) {
-      const index = traceCode.indexOf(selectedText, searchStart);
-      if (index === -1) break;
-      
-      // Get text before this occurrence in the source
-      const contextLength = Math.min(200, index);
-      const sourceContext = traceCode.substring(index - contextLength, index);
-      const selectionContext = textBeforeSelection.substring(Math.max(0, textBeforeSelection.length - contextLength));
-      
-      // Calculate similarity score (how much of the context matches)
-      let score = 0;
-      const minLen = Math.min(sourceContext.length, selectionContext.length);
-      for (let i = 1; i <= minLen; i++) {
-        if (sourceContext[sourceContext.length - i] === selectionContext[selectionContext.length - i]) {
-          score++;
-        } else {
-          break;
-        }
-      }
-      
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = index;
-      }
-      
-      searchStart = index + 1;
-    }
-    
-    if (bestMatch !== -1) {
-      console.log('Found best match in source at position:', bestMatch, 'with score:', bestScore);
-      return { start: bestMatch, end: bestMatch + selectedText.length };
-    }
-    
-    // Strategy 2: Find a significant unique substring
-    // Take the first substantial word (5+ characters) that's likely to be in the source
-    const words = selectedText.split(/\s+/).filter(w => w.length >= 4);
-    
-    if (words.length === 0) {
-      console.warn('No substantial words found in selection');
+    const index = latexCode.indexOf(selectedText);
+    if (index === -1) {
+      console.warn('Could not find selected text in source');
       return null;
     }
     
-    // Try to find the first substantial word in the source
-    const firstWord = words[0];
-    const firstWordIndex = traceCode.indexOf(firstWord);
-    
-    if (firstWordIndex === -1) {
-      console.warn('Could not find first word in source:', firstWord);
-      return null;
-    }
-    
-    // Find the last substantial word
-    const lastWord = words[words.length - 1];
-    
-    // Search for last word starting from first word position
-    const lastWordIndex = traceCode.indexOf(lastWord, firstWordIndex);
-    
-    if (lastWordIndex === -1) {
-      console.warn('Could not find last word in source:', lastWord);
-      // Fallback: use just the first word to the end of its sentence/line
-      const endOfContext = Math.min(
-        traceCode.indexOf('.', firstWordIndex) + 1,
-        traceCode.indexOf('\n', firstWordIndex) + 1,
-        firstWordIndex + 200
-      );
-      return { start: firstWordIndex, end: endOfContext > firstWordIndex ? endOfContext : firstWordIndex + firstWord.length };
-    }
-    
-    const start = firstWordIndex;
-    const end = lastWordIndex + lastWord.length;
-    
-    console.log('Found range in source:', start, '-', end);
-    console.log('Source text:', traceCode.substring(start, Math.min(end, start + 100)));
-    
-    // Validate range
-    if (start >= end || start < 0 || end > traceCode.length) {
-      console.warn('Invalid range calculated:', start, end);
-      return null;
-    }
-    
-    return { start, end };
+    return {
+      start: index,
+      end: index + selectedText.length
+    };
   };
 
   const attachHighlightListeners = () => {
@@ -366,17 +208,12 @@ export const LatexEditor = () => {
     if (commentId) {
       setActiveCommentId(commentId);
       
-      // Scroll comment into view in the sidebar (not the highlight)
-      // Use a more specific selector that targets sidebar comments
       const sidebarComments = document.querySelectorAll('.rounded-lg[data-comment-id]');
       const commentElement = Array.from(sidebarComments).find(
         el => el.getAttribute('data-comment-id') === commentId
       );
       if (commentElement) {
         commentElement.scrollIntoView({ behavior: "smooth", block: "center" });
-        // Add a temporary highlight effect to the comment
-        commentElement.classList.add("bg-accent/20");
-        setTimeout(() => commentElement.classList.remove("bg-accent/20"), 1000);
       }
     }
   };
@@ -396,44 +233,32 @@ export const LatexEditor = () => {
 
     const range = selection.getRangeAt(0);
     
-    // Check if selection is within preview
     if (!previewRef.current.contains(range.commonAncestorContainer)) return;
-
-    // Check if already in a highlight
-    let node: Node | null = range.commonAncestorContainer;
-    while (node && node !== previewRef.current) {
-      if (node.nodeType === 1 && (node as Element).classList.contains("latex-highlight")) {
-        return;
-      }
-      node = node.parentNode;
-    }
 
     const text = selection.toString().trim();
     if (!text) return;
 
-    // Get position for button - position on the RIGHT side of the preview, aligned with selection
     const rects = range.getClientRects();
     if (rects.length === 0) return;
 
+    // Get the position of the selection and the preview container
     const rect = rects[0];
     const previewRect = previewRef.current.getBoundingClientRect();
-    const scrollTop = previewRef.current.scrollTop;
+    const BUTTON_RIGHT_MARGIN = 30;
     
-    // Calculate Y position: the button should align with the TOP of the selected text
-    // rect.top is viewport coords, previewRect.top is preview's viewport coords
-    // Subtracting gives us position relative to preview container
-    // Add scrollTop to account for scrolled content within the preview
-    const relativeTop = rect.top - previewRect.top + scrollTop;
+    // Since the button is absolutely positioned within the card container,
+    // we need to calculate relative to the card, not the preview
+    const cardElement = previewRef.current.parentElement;
+    if (!cardElement) return;
     
-    // Calculate X position: place button on the right side
-    // Use previewRect.width minus a margin to position from the right edge
-    const buttonWidth = 32; // Button is h-8 w-8 = 32px
-    const rightMargin = -5; // Some spacing from edge to avoid cutoff
-    const relativeLeft = previewRect.width - buttonWidth - rightMargin;
+    const cardRect = cardElement.getBoundingClientRect();
+    
+    // Calculate position relative to card
+    const buttonTop = rect.top - cardRect.top;
     
     setButtonPosition({
-      top: relativeTop,
-      left: relativeLeft,
+      top: buttonTop,
+      left: previewRect.width - BUTTON_RIGHT_MARGIN,
     });
 
     setSelectedRange(range.cloneRange());
@@ -441,7 +266,6 @@ export const LatexEditor = () => {
     setShowAddButton(true);
     setIsSelectingText(true);
     
-    // Reset the selecting state after a short delay
     setTimeout(() => setIsSelectingText(false), 100);
   };
 
@@ -451,45 +275,29 @@ export const LatexEditor = () => {
       return;
     }
     
-    // Try to find the position of the selected text in the LaTeX source
     const sourceRange = getSourcePositionFromSelection(selectedRange);
-    
-    // If we can't map to source (e.g., rendered math), use a fallback
-    // We'll use the text content for matching in rendered output
     const commentRange = sourceRange || { start: 0, end: selectedText.length };
     
     if (!sourceRange) {
       console.log('⚠️ Could not map to source - will match by rendered text instead');
-      console.log('Selected text:', selectedText.substring(0, 100));
-    } else {
-      console.log('✓ Mapped selection to source range:', sourceRange);
-      console.log('Source text:', traceCode.substring(sourceRange.start, sourceRange.end).substring(0, 100));
     }
 
-    // Create permanent highlight immediately when user clicks "Add annotation"
     const newComment: Comment = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
       type: "other",
       text: selectedText,
       timestamp: Date.now(),
       range: commentRange,
-      data: [], // Empty data marks this as "pending completion"
+      data: [],
     };
 
-    console.log('Creating new comment with ID:', newComment.id);
-
-    // Add the comment to create the permanent highlight
     const updatedComments = [...comments, newComment];
     saveComments(updatedComments);
 
-    // Show the annotation form in sidebar
     setShowAnnotationForm(true);
     setActiveCommentId(newComment.id);
     
-    // Hide the add button
     setShowAddButton(false);
-    
-    // Clear the browser selection - the permanent highlight will remain
     window.getSelection()?.removeAllRanges();
   };
 
@@ -500,43 +308,24 @@ export const LatexEditor = () => {
   };
 
   const handleAddComment = (comment: Omit<Comment, "id" | "text" | "timestamp" | "range">) => {
-    if (!activeCommentId) {
-      console.error("No active comment ID when trying to add comment");
-      return;
-    }
+    if (!activeCommentId) return;
 
-    console.log("=== handleAddComment called ===");
-    console.log("Comment type:", comment.type);
-    console.log("Comment data:", comment.data);
-    console.log("Active comment ID:", activeCommentId);
-    console.log("Current comments before update:", comments);
-
-    // Update the existing comment with the form data
     const updatedComments = comments.map(c => 
       c.id === activeCommentId 
         ? { ...c, type: comment.type, data: comment.data }
         : c
     );
     
-    console.log("Updated comments after map:", updatedComments);
-    
     saveComments(updatedComments);
     
-    console.log("Comments saved to state and localStorage");
-    
-    // Close the form - don't check for incomplete, we just saved it
     setShowAnnotationForm(false);
     setActiveCommentId(null);
   };
 
   const handleCloseAnnotationForm = () => {
-    // If there's an active comment being created (with empty data), remove it
-    // This only happens when the user CANCELS (closes without submitting)
     if (activeCommentId && showAnnotationForm) {
       const comment = comments.find(c => c.id === activeCommentId);
       if (comment && (!comment.data || comment.data.length === 0 || !comment.data.some(d => d && d.trim()))) {
-        // This is an incomplete comment, remove it
-        console.log("Removing incomplete comment on cancel:", activeCommentId);
         saveComments(comments.filter(c => c.id !== activeCommentId));
       }
     }
@@ -560,26 +349,19 @@ export const LatexEditor = () => {
   const handleCommentClick = (id: string) => {
     setActiveCommentId(id);
     
-    // Scroll highlight into view in the preview
     const highlight = previewRef.current?.querySelector(`.latex-highlight[data-comment-id="${id}"]`);
     if (highlight) {
       highlight.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Add a temporary highlight effect
-      highlight.classList.add("active");
-      setTimeout(() => highlight.classList.remove("active"), 1000);
     }
   };
 
   const handleClickOutside = () => {
-    // Don't close if we're in the middle of selecting text
     if (isSelectingText) return;
     
-    // Only close the add button, but keep annotation form open if it's being edited
     if (showAddButton) {
       setShowAddButton(false);
       window.getSelection()?.removeAllRanges();
     } else if (!showAnnotationForm) {
-      // Only clear active comment if form is not open
       setActiveCommentId(null);
     }
   };
@@ -600,25 +382,69 @@ export const LatexEditor = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => downloadRawAnnotations(comments, traceCode, `annotations-trace${activeTrace}-raw.json`)}
+              onClick={() => downloadRawAnnotations(comments, latexCode, `annotations-trace${activeResponse}-raw.json`)}
               disabled={comments.length === 0}
               className="gap-2"
             >
               <Download className="h-4 w-4" />
-              Export JSON (Trace {activeTrace})
+              Export JSON (Trace {activeResponse})
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => downloadSuperAnnotateJSON(comments, traceCode, `annotations-trace${activeTrace}-superannotate.json`)}
+              onClick={() => downloadSuperAnnotateJSON(comments, latexCode, `annotations-trace${activeResponse}-superannotate.json`)}
               disabled={comments.length === 0}
               className="gap-2"
             >
               <Download className="h-4 w-4" />
-              Export SA (Trace {activeTrace})
+              Export SA (Trace {activeResponse})
             </Button>
           </div>
         </header>
+
+        {/* Task Metadata Section */}
+        {activeProject && (
+          <div className="mb-4">
+            <div className="rounded-lg border border-border bg-card/50 overflow-hidden">
+              <div className="px-3 py-2 grid grid-cols-2 gap-3">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="taskUrl" className="text-xs text-muted-foreground whitespace-nowrap">
+                    Task URL:
+                  </label>
+                  <Input
+                    id="taskUrl"
+                    type="url"
+                    value={activeProject.taskUrl || ""}
+                    onChange={(e) => {
+                      if (activeProjectId) {
+                        updateProject(activeProjectId, { taskUrl: e.target.value });
+                      }
+                    }}
+                    placeholder="https://..."
+                    className="text-xs h-7"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="taskId" className="text-xs text-muted-foreground whitespace-nowrap">
+                    Task ID:
+                  </label>
+                  <Input
+                    id="taskId"
+                    type="text"
+                    value={activeProject.taskId || ""}
+                    onChange={(e) => {
+                      if (activeProjectId) {
+                        updateProject(activeProjectId, { taskId: e.target.value });
+                      }
+                    }}
+                    placeholder="ID..."
+                    className="text-xs h-7"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Question Reference Section */}
         <div className="mb-6">
@@ -655,14 +481,14 @@ export const LatexEditor = () => {
           </div>
         </div>
 
-        {/* Trace Tabs */}
-        <Tabs value={activeTrace} onValueChange={(v) => setActiveTrace(v as "1" | "2")} className="w-full">
+        {/* Response Tabs */}
+        <Tabs value={activeResponse} onValueChange={(v) => setActiveResponse(v as "1" | "2")} className="w-full">
           <TabsList className="mb-4">
             <TabsTrigger value="1">Trace 1</TabsTrigger>
             <TabsTrigger value="2">Trace 2</TabsTrigger>
           </TabsList>
 
-          {/* Trace 1 Content */}
+          {/* Response 1 Content */}
           <TabsContent value="1" className="mt-0">
             <div className="grid lg:grid-cols-[1fr,320px] gap-6" onClick={handleClickOutside}>
               <div className="space-y-6">
@@ -676,7 +502,7 @@ export const LatexEditor = () => {
                       className="h-7 text-xs"
                       onClick={() => setShowResponseEditor1(!showResponseEditor1)}
                     >
-                      {showResponseEditor1 ? 'Hide Editor' : 'Edit'}
+                      {showResponseEditor1 ? 'Preview' : 'Edit'}
                     </Button>
                   </div>
                   
@@ -685,8 +511,8 @@ export const LatexEditor = () => {
                       <Textarea
                         value={response1}
                         onChange={(e) => setResponse1(e.target.value)}
-                        className="min-h-[80px] border border-border rounded bg-background font-mono text-sm resize-y"
-                        placeholder="Enter the response..."
+                        className="min-h-[100px] border border-border rounded bg-background font-mono text-sm resize-y"
+                        placeholder="Enter the model's response..."
                       />
                     </div>
                   ) : (
@@ -699,7 +525,7 @@ export const LatexEditor = () => {
                   )}
                 </div>
 
-                {/* Trace Editor */}
+                {/* Trace Editor Section */}
                 {showTraceEditor1 && (
                   <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
                     <div className="border-b border-border bg-secondary/30 px-4 py-3 flex items-center justify-between">
@@ -714,46 +540,46 @@ export const LatexEditor = () => {
                       </Button>
                     </div>
                     <Textarea
-                      value={traceCode1}
-                      onChange={(e) => setTraceCode1(e.target.value)}
+                      value={latexCode1}
+                      onChange={(e) => setLatexCode1(e.target.value)}
                       className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
                       placeholder="Enter trace excerpt..."
                     />
                   </div>
                 )}
+                
+                {!showTraceEditor1 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowTraceEditor1(true)}
+                    className="w-full"
+                  >
+                    Show Trace Editor
+                  </Button>
+                )}
 
-                {/* Trace Preview */}
-                <div className="rounded-xl border border-border bg-card shadow-lg overflow-visible">
-                  <div className="border-b border-border bg-secondary/30 px-4 py-3 flex items-center justify-between">
+                {/* Trace Preview Section */}
+                <div className="rounded-xl border border-border bg-card shadow-lg overflow-visible relative">
+                  <div className="border-b border-border bg-secondary/30 px-4 py-3">
                     <h2 className="text-sm font-semibold text-foreground">Trace Preview</h2>
-                    {!showTraceEditor1 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setShowTraceEditor1(true)}
-                      >
-                        Show Editor
-                      </Button>
-                    )}
                   </div>
-                  <div className="relative overflow-visible">
-                    <div
-                      ref={previewRef1}
-                      className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] overflow-auto prose prose-sm max-w-none"
-                      onMouseDown={handleMouseDown}
-                      onMouseUp={handleMouseUp}
-                      dangerouslySetInnerHTML={{ __html: renderedTrace1 }}
-                      onClick={(e) => e.stopPropagation()}
+                  <div
+                    ref={previewRef1}
+                    className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] prose prose-sm max-w-none"
+                    onMouseDown={handleMouseDown}
+                    onMouseUp={handleMouseUp}
+                    dangerouslySetInnerHTML={{ __html: renderedHtml1 }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  
+                  {showAddButton && activeResponse === "1" && (
+                    <AddAnnotationButton
+                      position={buttonPosition}
+                      onClick={handleAddAnnotationClick}
+                      onClose={handleCloseAddButton}
                     />
-                    {showAddButton && activeTrace === "1" && (
-                      <AddAnnotationButton
-                        position={buttonPosition}
-                        onClick={handleAddAnnotationClick}
-                        onClose={handleCloseAddButton}
-                      />
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
 
@@ -770,7 +596,7 @@ export const LatexEditor = () => {
             </div>
           </TabsContent>
 
-          {/* Trace 2 Content */}
+          {/* Response 2 Content */}
           <TabsContent value="2" className="mt-0">
             <div className="grid lg:grid-cols-[1fr,320px] gap-6" onClick={handleClickOutside}>
               <div className="space-y-6">
@@ -784,7 +610,7 @@ export const LatexEditor = () => {
                       className="h-7 text-xs"
                       onClick={() => setShowResponseEditor2(!showResponseEditor2)}
                     >
-                      {showResponseEditor2 ? 'Hide Editor' : 'Edit'}
+                      {showResponseEditor2 ? 'Preview' : 'Edit'}
                     </Button>
                   </div>
                   
@@ -793,8 +619,8 @@ export const LatexEditor = () => {
                       <Textarea
                         value={response2}
                         onChange={(e) => setResponse2(e.target.value)}
-                        className="min-h-[80px] border border-border rounded bg-background font-mono text-sm resize-y"
-                        placeholder="Enter the response..."
+                        className="min-h-[100px] border border-border rounded bg-background font-mono text-sm resize-y"
+                        placeholder="Enter the model's response..."
                       />
                     </div>
                   ) : (
@@ -807,7 +633,7 @@ export const LatexEditor = () => {
                   )}
                 </div>
 
-                {/* Trace Editor */}
+                {/* Trace Editor Section */}
                 {showTraceEditor2 && (
                   <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden">
                     <div className="border-b border-border bg-secondary/30 px-4 py-3 flex items-center justify-between">
@@ -822,46 +648,46 @@ export const LatexEditor = () => {
                       </Button>
                     </div>
                     <Textarea
-                      value={traceCode2}
-                      onChange={(e) => setTraceCode2(e.target.value)}
+                      value={latexCode2}
+                      onChange={(e) => setLatexCode2(e.target.value)}
                       className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
                       placeholder="Enter trace excerpt..."
                     />
                   </div>
                 )}
+                
+                {!showTraceEditor2 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowTraceEditor2(true)}
+                    className="w-full"
+                  >
+                    Show Trace Editor
+                  </Button>
+                )}
 
-                {/* Trace Preview */}
-                <div className="rounded-xl border border-border bg-card shadow-lg overflow-visible">
-                  <div className="border-b border-border bg-secondary/30 px-4 py-3 flex items-center justify-between">
+                {/* Trace Preview Section */}
+                <div className="rounded-xl border border-border bg-card shadow-lg overflow-visible relative">
+                  <div className="border-b border-border bg-secondary/30 px-4 py-3">
                     <h2 className="text-sm font-semibold text-foreground">Trace Preview</h2>
-                    {!showTraceEditor2 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setShowTraceEditor2(true)}
-                      >
-                        Show Editor
-                      </Button>
-                    )}
                   </div>
-                  <div className="relative overflow-visible">
-                    <div
-                      ref={previewRef2}
-                      className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] overflow-auto prose prose-sm max-w-none"
-                      onMouseDown={handleMouseDown}
-                      onMouseUp={handleMouseUp}
-                      dangerouslySetInnerHTML={{ __html: renderedTrace2 }}
-                      onClick={(e) => e.stopPropagation()}
+                  <div
+                    ref={previewRef2}
+                    className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] prose prose-sm max-w-none"
+                    onMouseDown={handleMouseDown}
+                    onMouseUp={handleMouseUp}
+                    dangerouslySetInnerHTML={{ __html: renderedHtml2 }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  
+                  {showAddButton && activeResponse === "2" && (
+                    <AddAnnotationButton
+                      position={buttonPosition}
+                      onClick={handleAddAnnotationClick}
+                      onClose={handleCloseAddButton}
                     />
-                    {showAddButton && activeTrace === "2" && (
-                      <AddAnnotationButton
-                        position={buttonPosition}
-                        onClick={handleAddAnnotationClick}
-                        onClose={handleCloseAddButton}
-                      />
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
 
