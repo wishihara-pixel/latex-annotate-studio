@@ -3,6 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Trash2, Edit2, Check, X, MessageSquare, Copy } from "lucide-react";
 import { Comment, CommentType } from "@/types/comment";
 import { cn } from "@/lib/utils";
@@ -36,6 +39,17 @@ export const CommentsSidebar = ({
   // Annotation form state
   const [annotationType, setAnnotationType] = useState<CommentType | "">("");
   const [annotationFields, setAnnotationFields] = useState<string[]>([]);
+  
+  // VoQ specific state
+  const [voqInvalid, setVoqInvalid] = useState(false);
+  const [voqInvalidExplanation, setVoqInvalidExplanation] = useState("");
+  
+  // Improvement specific state
+  const [improvementFailureType, setImprovementFailureType] = useState("");
+  const [improvementSeverity, setImprovementSeverity] = useState("");
+  
+  // Filter state
+  const [filterType, setFilterType] = useState<CommentType | null>(null);
 
   const getCommentTypeLabel = (type: CommentType) => {
     const labels = {
@@ -106,24 +120,51 @@ export const CommentsSidebar = ({
       other: 1,
     }[value];
     setAnnotationFields(new Array(fieldCount).fill(""));
+    
+    // Reset type-specific fields when changing type
+    setVoqInvalid(false);
+    setVoqInvalidExplanation("");
+    setImprovementFailureType("");
+    setImprovementSeverity("");
   };
 
   const handleAnnotationSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!annotationType) return;
 
-    onAddComment({ type: annotationType, data: annotationFields });
+    // Build the data array with extra metadata
+    let data = [...annotationFields];
+    
+    // For VoQ, append invalid assertion info
+    if (annotationType === "voq") {
+      data.push(voqInvalid ? "true" : "false");
+      data.push(voqInvalidExplanation || "");
+    }
+    
+    // For improvement, append failure type and severity
+    if (annotationType === "improvement") {
+      data.push(improvementFailureType || "");
+      data.push(improvementSeverity || "");
+    }
+
+    onAddComment({ type: annotationType, data });
+    
+    // Reset all fields
     setAnnotationType("");
     setAnnotationFields([]);
+    setVoqInvalid(false);
+    setVoqInvalidExplanation("");
+    setImprovementFailureType("");
+    setImprovementSeverity("");
     // Don't call onCloseAnnotationForm - handleAddComment already closes the form
     // Calling it here causes a race condition with stale state
   };
 
   const renderCommentContent = (comment: Comment) => {
     const fieldConfigs = {
-      voq: ["Tool", "Query", "URL", "Source", "Reasoning"],
+      voq: ["Tool", "Query", "URL", "Source", "Reasoning", "Invalid", "Invalid Explanation"],
       strength: ["Description"],
-      improvement: ["Excerpt", "Explanation"],
+      improvement: ["Excerpt", "Explanation", "Failure Type", "Severity"],
       other: ["Comment"],
     };
 
@@ -131,25 +172,39 @@ export const CommentsSidebar = ({
 
     return (
       <div className="space-y-2 text-xs">
-        {comment.data.map((value, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <div className="flex-1 min-w-0">
-              <span className="font-semibold text-foreground">{labels[i]}:</span>{" "}
-              <span className="text-muted-foreground break-words">{value}</span>
+        {comment.data.map((value, i) => {
+          // Special handling for "Invalid" checkbox field in VoQ
+          const isInvalidCheckbox = comment.type === "voq" && i === 5;
+          
+          // Skip showing "Invalid Explanation" if invalid is false
+          if (comment.type === "voq" && i === 6 && comment.data[5] !== "true") {
+            return null;
+          }
+          
+          return (
+            <div key={i} className="flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold text-foreground">{labels[i]}:</span>{" "}
+                {isInvalidCheckbox ? (
+                  <Checkbox checked={value === "true"} disabled className="ml-2" />
+                ) : (
+                  <span className="text-muted-foreground break-words">{value}</span>
+                )}
+              </div>
+              {value && !isInvalidCheckbox && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 flex-shrink-0 opacity-60 hover:opacity-100"
+                  onClick={() => copyToClipboard(value)}
+                  title="Copy to clipboard"
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              )}
             </div>
-            {value && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 flex-shrink-0 opacity-60 hover:opacity-100"
-                onClick={() => copyToClipboard(value)}
-                title="Copy to clipboard"
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -162,11 +217,15 @@ export const CommentsSidebar = ({
         { label: "URL", multiline: false },
         { label: "Source", multiline: true },
         { label: "Reasoning", multiline: true },
+        { label: "Invalid", multiline: false },
+        { label: "Invalid Explanation", multiline: true },
       ],
       strength: [{ label: "Description", multiline: true }],
       improvement: [
         { label: "Excerpt", multiline: true },
         { label: "Explanation", multiline: true },
+        { label: "Failure Type", multiline: false },
+        { label: "Severity", multiline: false },
       ],
       other: [{ label: "Comment", multiline: true }],
     };
@@ -187,45 +246,68 @@ export const CommentsSidebar = ({
           </SelectContent>
         </Select>
 
-        {configs.map((config, i) => (
-          <div key={i} className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium">{config.label}</label>
-              {editFields[i] && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-5 w-5 opacity-60 hover:opacity-100"
-                  onClick={() => copyToClipboard(editFields[i])}
-                  title="Copy to clipboard"
-                >
-                  <Copy className="h-3 w-3" />
-                </Button>
+        {configs.map((config, i) => {
+          // Special handling for "Invalid" checkbox in VoQ (field index 5)
+          const isInvalidCheckbox = editType === "voq" && i === 5;
+          const showInvalidExplanation = editType === "voq" && i === 6 && editFields[5] === "true";
+          
+          // Skip Invalid Explanation field if Invalid is not checked
+          if (editType === "voq" && i === 6 && editFields[5] !== "true") {
+            return null;
+          }
+          
+          return (
+            <div key={i} className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium">{config.label}</label>
+                {editFields[i] && !isInvalidCheckbox && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 opacity-60 hover:opacity-100"
+                    onClick={() => copyToClipboard(editFields[i])}
+                    title="Copy to clipboard"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              {isInvalidCheckbox ? (
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    checked={editFields[i] === "true"}
+                    onCheckedChange={(checked) => {
+                      const newFields = [...editFields];
+                      newFields[i] = checked ? "true" : "false";
+                      setEditFields(newFields);
+                    }}
+                  />
+                  <Label className="text-xs">This assertion is invalid</Label>
+                </div>
+              ) : config.multiline ? (
+                <Textarea
+                  value={editFields[i] || ""}
+                  onChange={(e) => {
+                    const newFields = [...editFields];
+                    newFields[i] = e.target.value;
+                    setEditFields(newFields);
+                  }}
+                  className="min-h-[50px] text-xs"
+                />
+              ) : (
+                <Input
+                  value={editFields[i] || ""}
+                  onChange={(e) => {
+                    const newFields = [...editFields];
+                    newFields[i] = e.target.value;
+                    setEditFields(newFields);
+                  }}
+                  className="h-8 text-xs"
+                />
               )}
             </div>
-            {config.multiline ? (
-              <Textarea
-                value={editFields[i] || ""}
-                onChange={(e) => {
-                  const newFields = [...editFields];
-                  newFields[i] = e.target.value;
-                  setEditFields(newFields);
-                }}
-                className="min-h-[50px] text-xs"
-              />
-            ) : (
-              <Input
-                value={editFields[i] || ""}
-                onChange={(e) => {
-                  const newFields = [...editFields];
-                  newFields[i] = e.target.value;
-                  setEditFields(newFields);
-                }}
-                className="h-8 text-xs"
-              />
-            )}
-          </div>
-        ))}
+          );
+        })}
 
         <div className="flex gap-2">
           <Button size="sm" className="h-7 text-xs flex-1" onClick={() => saveEdit(comment.id)}>
@@ -239,16 +321,85 @@ export const CommentsSidebar = ({
     );
   };
 
+  const toggleFilter = (type: CommentType) => {
+    setFilterType(filterType === type ? null : type);
+  };
+
+  const filteredComments = comments
+    .filter(c => c.data.length > 0 && c.data.some(d => d && d.trim()))
+    .filter(c => !filterType || c.type === filterType);
+
+  const commentTypeCounts = {
+    voq: comments.filter(c => c.type === "voq" && c.data.length > 0 && c.data.some(d => d && d.trim())).length,
+    strength: comments.filter(c => c.type === "strength" && c.data.length > 0 && c.data.some(d => d && d.trim())).length,
+    improvement: comments.filter(c => c.type === "improvement" && c.data.length > 0 && c.data.some(d => d && d.trim())).length,
+    other: comments.filter(c => c.type === "other" && c.data.length > 0 && c.data.some(d => d && d.trim())).length,
+  };
+
   return (
     <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden sticky top-8 max-h-[calc(100vh-8rem)]">
       <div className="border-b border-border bg-secondary/30 px-4 py-3 flex items-center gap-2">
         <MessageSquare className="h-4 w-4 text-primary" />
         <h2 className="text-sm font-semibold text-foreground">
-          Annotations ({comments.length})
+          Annotations ({comments.filter(c => c.data.length > 0 && c.data.some(d => d && d.trim())).length})
         </h2>
       </div>
 
-      <div className="overflow-auto max-h-[calc(100vh-12rem)] p-4 space-y-3">
+      {/* Filter buttons */}
+      <div className="px-4 pt-3 pb-2 border-b border-border bg-card">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={filterType === "voq" ? "default" : "outline"}
+            size="sm"
+            className={cn(
+              "h-7 text-xs px-3",
+              filterType === "voq" && "bg-blue-600 hover:bg-blue-700"
+            )}
+            onClick={() => toggleFilter("voq")}
+            disabled={commentTypeCounts.voq === 0}
+          >
+            Verification ({commentTypeCounts.voq})
+          </Button>
+          <Button
+            variant={filterType === "strength" ? "default" : "outline"}
+            size="sm"
+            className={cn(
+              "h-7 text-xs px-3",
+              filterType === "strength" && "bg-green-600 hover:bg-green-700"
+            )}
+            onClick={() => toggleFilter("strength")}
+            disabled={commentTypeCounts.strength === 0}
+          >
+            Strength ({commentTypeCounts.strength})
+          </Button>
+          <Button
+            variant={filterType === "improvement" ? "default" : "outline"}
+            size="sm"
+            className={cn(
+              "h-7 text-xs px-3",
+              filterType === "improvement" && "bg-amber-600 hover:bg-amber-700"
+            )}
+            onClick={() => toggleFilter("improvement")}
+            disabled={commentTypeCounts.improvement === 0}
+          >
+            Improvement ({commentTypeCounts.improvement})
+          </Button>
+          <Button
+            variant={filterType === "other" ? "default" : "outline"}
+            size="sm"
+            className={cn(
+              "h-7 text-xs px-3",
+              filterType === "other" && "bg-purple-600 hover:bg-purple-700"
+            )}
+            onClick={() => toggleFilter("other")}
+            disabled={commentTypeCounts.other === 0}
+          >
+            Other ({commentTypeCounts.other})
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-auto max-h-[calc(100vh-16rem)] p-4 space-y-3">
         {/* Annotation form moved to bottom - see below */}
         {false && showAnnotationForm && (
           <div className="bg-accent/10 border border-accent rounded-lg p-4 space-y-3">
@@ -436,16 +587,23 @@ export const CommentsSidebar = ({
           </div>
         )}
 
-        {comments.filter(c => c.data.length > 0 && c.data.some(d => d && d.trim())).length === 0 && !showAnnotationForm ? (
+        {filteredComments.length === 0 && !showAnnotationForm ? (
           <div className="text-center py-8 text-sm text-muted-foreground">
             <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-            <p>No annotations yet</p>
-            <p className="text-xs mt-1">Select text to add one</p>
+            {comments.filter(c => c.data.length > 0 && c.data.some(d => d && d.trim())).length === 0 ? (
+              <>
+                <p>No annotations yet</p>
+                <p className="text-xs mt-1">Select text to add one</p>
+              </>
+            ) : (
+              <>
+                <p>No annotations of this type</p>
+                <p className="text-xs mt-1">Click the filter button again to show all</p>
+              </>
+            )}
           </div>
         ) : (
-          comments
-            .filter(c => c.data.length > 0 && c.data.some(d => d && d.trim())) // Only show completed comments
-            .map((comment) => (
+          filteredComments.map((comment) => (
             <div
               key={comment.id}
               data-comment-id={comment.id}
@@ -620,6 +778,34 @@ export const CommentsSidebar = ({
                           className="min-h-[60px] text-sm"
                         />
                       </div>
+                      
+                      {/* Invalid Assertion Checkbox */}
+                      <div className="flex items-start space-x-2 pt-2">
+                        <Checkbox
+                          id="voq-invalid"
+                          checked={voqInvalid}
+                          onCheckedChange={(checked) => setVoqInvalid(checked as boolean)}
+                        />
+                        <Label
+                          htmlFor="voq-invalid"
+                          className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                        >
+                          This assertion is invalid
+                        </Label>
+                      </div>
+                      
+                      {/* Show explanation field if invalid is checked */}
+                      {voqInvalid && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium">Explanation</label>
+                          <Textarea
+                            value={voqInvalidExplanation}
+                            onChange={(e) => setVoqInvalidExplanation(e.target.value)}
+                            placeholder="Explain why this assertion is invalid"
+                            className="min-h-[60px] text-sm"
+                          />
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -641,6 +827,40 @@ export const CommentsSidebar = ({
 
                   {annotationType === "improvement" && (
                     <>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Type of Failure</label>
+                        <Select
+                          value={improvementFailureType}
+                          onValueChange={setImprovementFailureType}
+                        >
+                          <SelectTrigger className="text-sm">
+                            <SelectValue placeholder="Select failure type..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="instruction-following">Instruction Following</SelectItem>
+                            <SelectItem value="truthfulness">Truthfulness</SelectItem>
+                            <SelectItem value="logical-validity">Logical Validity</SelectItem>
+                            <SelectItem value="efficiency">Efficiency</SelectItem>
+                            <SelectItem value="completeness">Completeness</SelectItem>
+                            <SelectItem value="other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium">Severity</label>
+                        <RadioGroup value={improvementSeverity} onValueChange={setImprovementSeverity}>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="minor" id="severity-minor" />
+                            <Label htmlFor="severity-minor" className="text-xs font-normal">Minor</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="substantial" id="severity-substantial" />
+                            <Label htmlFor="severity-substantial" className="text-xs font-normal">Substantial</Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                      
                       <div className="space-y-1">
                         <label className="text-xs font-medium">Excerpt</label>
                         <Textarea

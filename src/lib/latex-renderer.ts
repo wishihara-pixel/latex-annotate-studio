@@ -8,52 +8,42 @@ const escapeHtml = (text: string): string => {
   return div.innerHTML;
 };
 
-// Apply highlights to the LaTeX source before rendering
-// Returns both the modified text and the text-based comments
-const applyHighlightsToSource = (text: string, comments: Comment[]): { text: string; textBasedComments: Comment[] } => {
-  if (comments.length === 0) return { text, textBasedComments: [] };
+// Apply highlights to the LaTeX source using special marker tokens
+// These markers will survive LaTeX rendering and can be used to wrap content after
+const applyHighlightsToSource = (text: string, comments: Comment[]): { text: string; commentMap: Map<string, string> } => {
+  if (comments.length === 0) return { text, commentMap: new Map() };
 
-  // Separate comments into source-mappable and text-based
-  const sourceMappable: Comment[] = [];
-  const textBased: Comment[] = [];
+  // Sort comments by start position in reverse order to avoid position shifts
+  const sortedComments = [...comments].sort((a, b) => b.range.start - a.range.start);
   
-  comments.forEach((comment) => {
-    const start = comment.range.start;
-    const end = comment.range.end;
-    
-    // Check if this is a valid source range
-    // Fallback ranges (0 to text.length) indicate text-based matching needed
-    if (start === 0 && end === comment.text.length) {
-      textBased.push(comment);
-      console.log('Text-based highlight will be applied for:', comment.id);
-    } else if (start >= 0 && end <= text.length && start < end) {
-      sourceMappable.push(comment);
-    } else {
-      console.warn('Invalid range for comment:', comment.id, start, end);
-    }
-  });
-
-  // Sort source-mappable comments by start position in reverse order
-  // This prevents position shifts when inserting markers
-  const sortedComments = [...sourceMappable].sort((a, b) => b.range.start - a.range.start);
-
   let result = text;
+  const commentMap = new Map<string, string>();
   
   sortedComments.forEach((comment) => {
     const start = comment.range.start;
     const end = comment.range.end;
-
-    // Extract the text to be highlighted
+    
+    // Validate range
+    if (start < 0 || end > result.length || start >= end) {
+      console.warn('Invalid range for comment:', comment.id, start, end);
+      return;
+    }
+    
     const before = result.substring(0, start);
     const highlighted = result.substring(start, end);
     const after = result.substring(end);
-
-    // Insert highlight markers using a format that won't trigger LaTeX/markdown processing
-    // Using @@@ instead of <<< to avoid being caught by regex patterns
-    result = `${before}@@@HLSTART_${comment.id}@@@${highlighted}@@@HLEND_${comment.id}@@@${after}`;
+    
+    // Use unique tokens that won't be processed by LaTeX or markdown
+    const startToken = `⟪HLSTART${comment.id}⟫`;
+    const endToken = `⟪HLEND${comment.id}⟫`;
+    
+    result = `${before}${startToken}${highlighted}${endToken}${after}`;
+    commentMap.set(comment.id, highlighted);
+    
+    console.log(`Inserted markers for comment ${comment.id} around:`, highlighted.substring(0, 50));
   });
-
-  return { text: result, textBasedComments: textBased };
+  
+  return { text: result, commentMap };
 };
 
 // Helper function to apply text-based highlights to rendered HTML
@@ -114,25 +104,65 @@ const applyTextBasedHighlights = (html: string, textBasedComments: Comment[]): s
   return doc.body.innerHTML;
 };
 
+// Helper function to process LaTeX content (without comments)
+const processLatexContent = (content: string): string => {
+  let processed = content;
+  
+  // Handle literal \n strings
+  processed = processed.replace(/\\n(?![a-zA-Z])/g, "\n");
+  
+  // Auto-fix incomplete LaTeX commands
+  processed = processed.replace(/\\left\s+(?![(\[{|])/g, '\\left( ');
+  processed = processed.replace(/\\right\s+(?![)\]}|])/g, ' \\right)');
+  processed = processed.replace(/\\bigg(?![lr])\s*(?![(\[{|])/g, '\\bigg| ');
+  processed = processed.replace(/\\Bigg(?![lr])\s*(?![(\[{|])/g, '\\Bigg| ');
+  processed = processed.replace(/\\big(?![glr])\s*(?![(\[{|])/g, '\\big| ');
+  processed = processed.replace(/\\Big(?![glr])\s*(?![(\[{|])/g, '\\Big| ');
+  
+  // Try to render with KaTeX
+  if (/\\[a-zA-Z]+|\^|_|\{|\}/.test(processed)) {
+    try {
+      return katex.renderToString(processed, {
+        throwOnError: false,
+        displayMode: false,
+      });
+    } catch (e) {
+      return escapeHtml(processed);
+    }
+  }
+  
+  return escapeHtml(processed);
+};
+
 // Render LaTeX with custom parentheses support
 export const renderLatex = (text: string, comments: Comment[] = []): string => {
   console.log('=== renderLatex called with', comments.length, 'comments ===');
   
-  // Apply highlights to the SOURCE before any rendering
-  const { text: highlightedText, textBasedComments } = applyHighlightsToSource(text, comments);
+  // Insert marker tokens in the source that will survive rendering
+  const { text: markedText, commentMap } = applyHighlightsToSource(text, comments);
   
-  // CRITICAL: Protect highlight markers IMMEDIATELY before any processing
-  // Store them and replace with safe placeholders
-  // Use a format that won't be touched by markdown or LaTeX: XXXHIGHLIGHTXXX
-  const protectedMarkers: Array<{ commentId: string; content: string }> = [];
-  text = highlightedText.replace(/@@@HLSTART_([^@]+)@@@([\s\S]*?)@@@HLEND_\1@@@/g, (match, commentId, content) => {
-    const index = protectedMarkers.length;
-    protectedMarkers.push({ commentId, content });
-    return `XXXHIGHLIGHTPLACEHOLDERXXX${index}XXXENDXXX`;
-  });
+  console.log('Inserted markers for', commentMap.size, 'comments');
   
-  console.log('Protected', protectedMarkers.length, 'highlights from processing');
-  console.log('Text-based comments to process later:', textBasedComments.length);
+  // Use the marked text for rendering
+  text = markedText;
+  
+  // FIRST: Handle literal \n strings BEFORE any other processing
+  // This prevents \n from interfering with LaTeX detection
+  // The data might have literal "\n" character sequences (backslash + n) that need to be converted
+  // We need to handle this carefully since LaTeX also uses backslashes
+  
+  // Replace ONLY standalone \n (not part of LaTeX commands like \newcommand)
+  // This regex matches \n but not when followed by a letter (which would be a LaTeX command)
+  text = text.replace(/\\n(?![a-zA-Z])/g, "\n");
+  
+  // Auto-fix incomplete LaTeX commands
+  // Fix standalone \left, \right, \bigg, etc. that are missing delimiters
+  text = text.replace(/\\left\s+(?![(\[{|])/g, '\\left( ');
+  text = text.replace(/\\right\s+(?![)\]}|])/g, ' \\right)');
+  text = text.replace(/\\bigg(?![lr])\s*(?![(\[{|])/g, '\\bigg| ');
+  text = text.replace(/\\Bigg(?![lr])\s*(?![(\[{|])/g, '\\Bigg| ');
+  text = text.replace(/\\big(?![glr])\s*(?![(\[{|])/g, '\\big| ');
+  text = text.replace(/\\Big(?![glr])\s*(?![(\[{|])/g, '\\Big| ');
   
   // First, protect LaTeX display math blocks
   const displayMathBlocks: string[] = [];
@@ -149,6 +179,7 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
   });
 
   // Enhanced LaTeX detection - now supports multiple delimiters and more patterns
+  // Apply in order from most specific to least specific to avoid double-rendering
   
   // 1. Square brackets with LaTeX content: [ content ]
   text = text.replace(/\[([^\[\]]*(?:\\[a-zA-Z]+|[\^_{}])[^\[\]]*)\]/g, (match, content) => {
@@ -184,8 +215,23 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
     return match;
   });
   
-  // 3. Aggressive inline detection: standalone LaTeX commands or expressions
-  // Matches things like: \frac{a}{b}, \sqrt{2}, x^2, x_i, etc. (not in delimiters)
+  // 3. Greek letters with subscripts/superscripts FIRST (before backslash commands)
+  // Matches: γ^μ, g_{μν}, γ^μ_ν, etc.
+  // Greek letter range: \u0370-\u03FF (Greek and Coptic), \u1F00-\u1FFF (Greek Extended)
+  text = text.replace(/([\u0370-\u03FF\u1F00-\u1FFFa-zA-Z0-9]+(?:_\{[^}]+\}|\^\{[^}]+\}|_[\u0370-\u03FF\u1F00-\u1FFFa-zA-Z0-9]+|\^[\u0370-\u03FF\u1F00-\u1FFFa-zA-Z0-9]+)+)/g, (match) => {
+    try {
+      const rendered = katex.renderToString(match, {
+        throwOnError: false,
+        displayMode: false,
+      });
+      return `<span class="katex-inline-custom">${rendered}</span>`;
+    } catch {
+      return match;
+    }
+  });
+  
+  // 4. Aggressive inline detection: standalone LaTeX commands or expressions
+  // Matches things like: \frac{a}{b}, \sqrt{2}, etc. (not in delimiters)
   text = text.replace(/(?<![\\([\$])\\([a-zA-Z]+)(\{[^}]*\})*(\^[^{\s]*|\^\{[^}]*\})?(_[^{\s]*|_\{[^}]*\})?/g, (match) => {
     // Don't match if this is part of a larger LaTeX block or markdown formatting
     try {
@@ -199,8 +245,9 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
     }
   });
   
-  // 4. Superscripts and subscripts standalone: x^2, x_i, etc.
-  text = text.replace(/([a-zA-Z0-9])(\^[{\w}]+|_[{\w}]+)+(?![}])/g, (match) => {
+  // 5. Standalone Greek letters (render them as math to get proper font)
+  // Only match if NOT already inside a katex-inline-custom span
+  text = text.replace(/(?<!katex-inline-custom">[\s\S]{0,100})([\u0370-\u03FF\u1F00-\u1FFF]+)(?![\s\S]{0,100}<\/span>)/g, (match) => {
     try {
       const rendered = katex.renderToString(match, {
         throwOnError: false,
@@ -221,12 +268,11 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
   text = text.replace(/^### (.*$)/gim, "<h3>$1</h3>");
   text = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
   text = text.replace(/\*(.*?)\*/g, "<em>$1</em>");
-  text = text.replace(/\n\n/g, "</p><p>");
-  text = `<p>${text}</p>`;
   
-  // Debug: Check if placeholders survived markdown processing
-  const placeholderCount = (text.match(/XXXHIGHLIGHTPLACEHOLDERXXX\d+XXXENDXXX/g) || []).length;
-  console.log('After markdown processing, found', placeholderCount, 'placeholders');
+  // Convert double newlines to paragraphs, single newlines to line breaks
+  text = text.replace(/\n\n/g, "</p><p>");
+  text = text.replace(/\n/g, "<br>");
+  text = `<p>${text}</p>`;
 
   // Restore protected math blocks and render them
   text = text.replace(/___DISPLAY_MATH_(\d+)___/g, (match, index) => {
@@ -255,42 +301,41 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
     }
   });
 
-  // Restore protected highlights and convert to HTML marks
-  console.log('Restoring', protectedMarkers.length, 'protected highlights...');
+  // Convert marker tokens to actual highlight spans
+  console.log('Looking for markers in rendered HTML...');
+  console.log('Sample of rendered text:', text.substring(0, 500));
   
-  // Debug: Check what placeholders look like in the text right now
-  const foundPlaceholders = text.match(/XXXHIGHLIGHTPLACEHOLDERXXX\d+XXXENDXXX/g);
-  console.log('Placeholders to restore:', foundPlaceholders);
-  
-  text = text.replace(/XXXHIGHLIGHTPLACEHOLDERXXX(\d+)XXXENDXXX/g, (match, index) => {
-    const markerIndex = parseInt(index);
-    console.log('Found placeholder for index:', markerIndex, 'Match:', match);
-    if (markerIndex < protectedMarkers.length) {
-      const marker = protectedMarkers[markerIndex];
-      console.log(`Restoring highlight ${markerIndex} for comment:`, marker.commentId, 'Content:', marker.content.substring(0, 50));
-      return `<mark class="latex-highlight" data-comment-id="${marker.commentId}">${marker.content}</mark>`;
+  commentMap.forEach((originalText, commentId) => {
+    const startToken = `⟪HLSTART${commentId}⟫`;
+    const endToken = `⟪HLEND${commentId}⟫`;
+    
+    // Check if markers exist in the text
+    const hasStart = text.includes(startToken);
+    const hasEnd = text.includes(endToken);
+    console.log(`Marker check for ${commentId}: start=${hasStart}, end=${hasEnd}`);
+    
+    if (!hasStart || !hasEnd) {
+      console.warn(`Markers not found for ${commentId}! They may have been stripped.`);
+      return;
     }
-    console.warn('Could not find marker for index:', markerIndex);
-    return match;
+    
+    // Find and replace the tokens with mark tags
+    // Use a more flexible regex that handles any content between markers
+    const regex = new RegExp(`${escapeRegex(startToken)}([\\s\\S]*?)${escapeRegex(endToken)}`, 'g');
+    const matches = text.match(regex);
+    console.log(`Found ${matches ? matches.length : 0} matches for ${commentId}`);
+    
+    text = text.replace(regex, (match, content) => {
+      console.log(`Applying highlight for ${commentId}, content:`, content.substring(0, 100));
+      return `<mark class="latex-highlight" data-comment-id="${commentId}">${content}</mark>`;
+    });
   });
-  
-  console.log('After restoration, remaining placeholders:', (text.match(/XXXHIGHLIGHTPLACEHOLDERXXX\d+XXXENDXXX/g) || []).length);
-  
-  // Safety cleanup: Remove any remaining unconverted markers
-  const remainingStart = text.match(/@@@HLSTART_[^@]+@@@/g);
-  const remainingEnd = text.match(/@@@HLEND_[^@]+@@@/g);
-  if (remainingStart || remainingEnd) {
-    console.warn('Found unconverted markers:', { start: remainingStart, end: remainingEnd });
-    text = text.replace(/@@@HLSTART_[^@]+@@@/g, '');
-    text = text.replace(/@@@HLEND_[^@]+@@@/g, '');
-  }
-
-  // Apply text-based highlights for comments that couldn't be mapped to source
-  if (textBasedComments.length > 0) {
-    console.log('Applying', textBasedComments.length, 'text-based highlights...');
-    text = applyTextBasedHighlights(text, textBasedComments);
-  }
 
   console.log('Final rendered HTML length:', text.length);
   return text;
+};
+
+// Helper to escape regex special characters
+const escapeRegex = (str: string): string => {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };

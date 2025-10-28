@@ -1,6 +1,6 @@
 # LaTeX Annotator Studio
 
-Professional LaTeX editor with inline annotations, real-time rendering, and collaborative commenting features.
+Professional LaTeX editor with inline annotations and real-time rendering for RLHF and trace reasoning analysis.
 
 ## Features
 
