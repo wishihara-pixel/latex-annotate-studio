@@ -542,8 +542,9 @@ export const LatexEditor = () => {
                     <Textarea
                       value={latexCode1}
                       onChange={(e) => setLatexCode1(e.target.value)}
-                      className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
+                      className="min-h-[300px] w-full border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
                       placeholder="Enter trace excerpt..."
+                      style={{ whiteSpace: 'pre-wrap', overflowWrap: 'break-word', overflowX: 'auto' }}
                     />
                   </div>
                 )}
@@ -559,16 +560,16 @@ export const LatexEditor = () => {
                   </Button>
                 )}
 
-                {/* Trace Preview Section */}
-                <div className="rounded-xl border border-border bg-card shadow-lg overflow-visible relative">
-                  <div className="border-b border-border bg-secondary/30 px-4 py-3">
-                    <h2 className="text-sm font-semibold text-foreground">Trace Preview</h2>
-                  </div>
-                  <div
-                    ref={previewRef1}
-                    className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] prose prose-sm max-w-none"
-                    onMouseDown={handleMouseDown}
-                    onMouseUp={handleMouseUp}
+                  {/* Trace Preview Section */}
+                  <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden relative">
+                    <div className="border-b border-border bg-secondary/30 px-4 py-3">
+                      <h2 className="text-sm font-semibold text-foreground">Trace Preview</h2>
+                    </div>
+                    <div
+                      ref={previewRef1}
+                      className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] prose prose-sm max-w-none overflow-x-auto"
+                      onMouseDown={handleMouseDown}
+                      onMouseUp={handleMouseUp}
                     dangerouslySetInnerHTML={{ __html: renderedHtml1 }}
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -650,8 +651,9 @@ export const LatexEditor = () => {
                     <Textarea
                       value={latexCode2}
                       onChange={(e) => setLatexCode2(e.target.value)}
-                      className="min-h-[300px] border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
+                      className="min-h-[300px] w-full border-0 rounded-none bg-[hsl(var(--editor-bg))] font-mono text-sm resize-y focus-visible:ring-0 placeholder:text-muted-foreground/50"
                       placeholder="Enter trace excerpt..."
+                      style={{ whiteSpace: 'pre-wrap', overflowWrap: 'break-word', overflowX: 'auto' }}
                     />
                   </div>
                 )}
@@ -667,16 +669,16 @@ export const LatexEditor = () => {
                   </Button>
                 )}
 
-                {/* Trace Preview Section */}
-                <div className="rounded-xl border border-border bg-card shadow-lg overflow-visible relative">
-                  <div className="border-b border-border bg-secondary/30 px-4 py-3">
-                    <h2 className="text-sm font-semibold text-foreground">Trace Preview</h2>
-                  </div>
-                  <div
-                    ref={previewRef2}
-                    className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] prose prose-sm max-w-none"
-                    onMouseDown={handleMouseDown}
-                    onMouseUp={handleMouseUp}
+                  {/* Trace Preview Section */}
+                  <div className="rounded-xl border border-border bg-card shadow-lg overflow-hidden relative">
+                    <div className="border-b border-border bg-secondary/30 px-4 py-3">
+                      <h2 className="text-sm font-semibold text-foreground">Trace Preview</h2>
+                    </div>
+                    <div
+                      ref={previewRef2}
+                      className="min-h-[300px] p-6 bg-[hsl(var(--preview-bg))] prose prose-sm max-w-none overflow-x-auto"
+                      onMouseDown={handleMouseDown}
+                      onMouseUp={handleMouseUp}
                     dangerouslySetInnerHTML={{ __html: renderedHtml2 }}
                     onClick={(e) => e.stopPropagation()}
                   />

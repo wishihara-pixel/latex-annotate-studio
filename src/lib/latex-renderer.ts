@@ -8,6 +8,13 @@ const escapeHtml = (text: string): string => {
   return div.innerHTML;
 };
 
+// Unescape HTML entities (opposite of escapeHtml)
+const unescapeHtml = (text: string): string => {
+  const div = document.createElement("div");
+  div.innerHTML = text;
+  return div.textContent || text;
+};
+
 // Apply highlights to the LaTeX source using special marker tokens
 // These markers will survive LaTeX rendering and can be used to wrap content after
 const applyHighlightsToSource = (text: string, comments: Comment[]): { text: string; commentMap: Map<string, string> } => {
@@ -33,9 +40,9 @@ const applyHighlightsToSource = (text: string, comments: Comment[]): { text: str
     const highlighted = result.substring(start, end);
     const after = result.substring(end);
     
-    // Use unique tokens that won't be processed by LaTeX or markdown
-    const startToken = `⟪HLSTART${comment.id}⟫`;
-    const endToken = `⟪HLEND${comment.id}⟫`;
+    // Use zero-width space markers with unique IDs that won't interfere with rendering
+    const startToken = `\u200B##HLSTART##${comment.id}##\u200B`;
+    const endToken = `\u200B##HLEND##${comment.id}##\u200B`;
     
     result = `${before}${startToken}${highlighted}${endToken}${after}`;
     commentMap.set(comment.id, highlighted);
@@ -125,6 +132,8 @@ const processLatexContent = (content: string): string => {
       return katex.renderToString(processed, {
         throwOnError: false,
         displayMode: false,
+        strict: false,
+        trust: true,
       });
     } catch (e) {
       return escapeHtml(processed);
@@ -138,15 +147,14 @@ const processLatexContent = (content: string): string => {
 export const renderLatex = (text: string, comments: Comment[] = []): string => {
   console.log('=== renderLatex called with', comments.length, 'comments ===');
   
-  // Insert marker tokens in the source that will survive rendering
-  const { text: markedText, commentMap } = applyHighlightsToSource(text, comments);
+  // FIRST: Unescape any HTML entities in the input
+  // This handles cases where text was copied with escaped HTML like &lt;span&gt;
+  text = unescapeHtml(text);
   
-  console.log('Inserted markers for', commentMap.size, 'comments');
+  // Don't insert markers - we'll apply highlights after rendering using text search
+  const textBasedComments = comments;
   
-  // Use the marked text for rendering
-  text = markedText;
-  
-  // FIRST: Handle literal \n strings BEFORE any other processing
+  // Handle literal \n strings BEFORE any other processing
   // This prevents \n from interfering with LaTeX detection
   // The data might have literal "\n" character sequences (backslash + n) that need to be converted
   // We need to handle this carefully since LaTeX also uses backslashes
@@ -189,6 +197,8 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
         const rendered = katex.renderToString(content, {
           throwOnError: false,
           displayMode: false,
+          strict: false,
+          trust: true,
         });
         return `<span class="katex-inline-custom">${rendered}</span>`;
       } catch {
@@ -206,6 +216,8 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
         const rendered = katex.renderToString(content, {
           throwOnError: false,
           displayMode: false,
+          strict: false,
+          trust: true,
         });
         return `<span class="katex-inline-custom">${rendered}</span>`;
       } catch {
@@ -223,6 +235,8 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
       const rendered = katex.renderToString(match, {
         throwOnError: false,
         displayMode: false,
+        strict: false,
+        trust: true,
       });
       return `<span class="katex-inline-custom">${rendered}</span>`;
     } catch {
@@ -230,20 +244,87 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
     }
   });
   
-  // 4. Aggressive inline detection: standalone LaTeX commands or expressions
-  // Matches things like: \frac{a}{b}, \sqrt{2}, etc. (not in delimiters)
-  text = text.replace(/(?<![\\([\$])\\([a-zA-Z]+)(\{[^}]*\})*(\^[^{\s]*|\^\{[^}]*\})?(_[^{\s]*|_\{[^}]*\})?/g, (match) => {
-    // Don't match if this is part of a larger LaTeX block or markdown formatting
-    try {
-      const rendered = katex.renderToString(match, {
-        throwOnError: false,
-        displayMode: false,
-      });
-      return `<span class="katex-inline-custom">${rendered}</span>`;
-    } catch {
-      return match;
+  // 4. Aggressive inline detection: standalone LaTeX commands with proper brace matching
+  // This handles nested braces like \frac{a}{b}, \frac{\frac{x}{y}}{z}, etc.
+  const processInlineLaTeX = (text: string): string => {
+    let result = '';
+    let i = 0;
+    
+    while (i < text.length) {
+      // Look for backslash followed by letters (LaTeX command)
+      if (text[i] === '\\' && i + 1 < text.length && /[a-zA-Z]/.test(text[i + 1])) {
+        let j = i + 1;
+        // Get the command name
+        while (j < text.length && /[a-zA-Z]/.test(text[j])) {
+          j++;
+        }
+        
+        // Now look for arguments in braces
+        let command = text.substring(i, j);
+        let args = '';
+        let k = j;
+        
+        // Match all brace groups that follow
+        while (k < text.length && text[k] === '{') {
+          let braceCount = 1;
+          let start = k;
+          k++; // skip opening brace
+          
+          while (k < text.length && braceCount > 0) {
+            if (text[k] === '{') braceCount++;
+            else if (text[k] === '}') braceCount--;
+            k++;
+          }
+          
+          args += text.substring(start, k);
+        }
+        
+        // Also check for superscripts and subscripts
+        while (k < text.length && (text[k] === '^' || text[k] === '_')) {
+          args += text[k++];
+          if (k < text.length && text[k] === '{') {
+            let braceCount = 1;
+            let start = k;
+            k++;
+            while (k < text.length && braceCount > 0) {
+              if (text[k] === '{') braceCount++;
+              else if (text[k] === '}') braceCount--;
+              k++;
+            }
+            args += text.substring(start, k);
+          } else if (k < text.length && /[a-zA-Z0-9]/.test(text[k])) {
+            args += text[k++];
+          }
+        }
+        
+        const fullMatch = command + args;
+        
+        // Try to render it
+        if (args.length > 0) {
+          try {
+            const rendered = katex.renderToString(fullMatch, {
+              throwOnError: false,
+              displayMode: false,
+              strict: false,
+              trust: true,
+            });
+            result += `<span class="katex-inline-custom">${rendered}</span>`;
+            i = k;
+            continue;
+          } catch (e) {
+            // If rendering fails, just keep the original
+          }
+        }
+      }
+      
+      result += text[i];
+      i++;
     }
-  });
+    
+    return result;
+  };
+  
+  text = processInlineLaTeX(text);
   
   // 5. Standalone Greek letters (render them as math to get proper font)
   // Only match if NOT already inside a katex-inline-custom span
@@ -252,6 +333,8 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
       const rendered = katex.renderToString(match, {
         throwOnError: false,
         displayMode: false,
+        strict: false,
+        trust: true,
       });
       return `<span class="katex-inline-custom">${rendered}</span>`;
     } catch {
@@ -282,6 +365,8 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
       return katex.renderToString(content, {
         throwOnError: false,
         displayMode: true,
+        strict: false,
+        trust: true,
       });
     } catch {
       return escapeHtml(mathContent);
@@ -295,41 +380,19 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
       return katex.renderToString(content, {
         throwOnError: false,
         displayMode: false,
+        strict: false,
+        trust: true,
       });
     } catch {
       return escapeHtml(mathContent);
     }
   });
 
-  // Convert marker tokens to actual highlight spans
-  console.log('Looking for markers in rendered HTML...');
-  console.log('Sample of rendered text:', text.substring(0, 500));
-  
-  commentMap.forEach((originalText, commentId) => {
-    const startToken = `⟪HLSTART${commentId}⟫`;
-    const endToken = `⟪HLEND${commentId}⟫`;
-    
-    // Check if markers exist in the text
-    const hasStart = text.includes(startToken);
-    const hasEnd = text.includes(endToken);
-    console.log(`Marker check for ${commentId}: start=${hasStart}, end=${hasEnd}`);
-    
-    if (!hasStart || !hasEnd) {
-      console.warn(`Markers not found for ${commentId}! They may have been stripped.`);
-      return;
-    }
-    
-    // Find and replace the tokens with mark tags
-    // Use a more flexible regex that handles any content between markers
-    const regex = new RegExp(`${escapeRegex(startToken)}([\\s\\S]*?)${escapeRegex(endToken)}`, 'g');
-    const matches = text.match(regex);
-    console.log(`Found ${matches ? matches.length : 0} matches for ${commentId}`);
-    
-    text = text.replace(regex, (match, content) => {
-      console.log(`Applying highlight for ${commentId}, content:`, content.substring(0, 100));
-      return `<mark class="latex-highlight" data-comment-id="${commentId}">${content}</mark>`;
-    });
-  });
+  // Apply text-based highlights AFTER all rendering is complete
+  if (textBasedComments.length > 0) {
+    console.log('Applying', textBasedComments.length, 'text-based highlights after rendering...');
+    text = applyTextBasedHighlights(text, textBasedComments);
+  }
 
   console.log('Final rendered HTML length:', text.length);
   return text;
