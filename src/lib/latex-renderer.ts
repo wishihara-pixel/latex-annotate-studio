@@ -179,11 +179,19 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
     return `___DISPLAY_MATH_${displayMathBlocks.length - 1}___`;
   });
 
-  // Protect standard inline math
+  // Protect standard inline math delimiters: \( ... \)
   const inlineMathBlocks: string[] = [];
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (match) => {
     inlineMathBlocks.push(match);
     return `___INLINE_MATH_${inlineMathBlocks.length - 1}___`;
+  });
+  
+  // Protect environments like \begin{array}...\end{array}, \begin{cases}...\end{cases}, etc.
+  // These need to be rendered as display math even if inline
+  const environmentBlocks: string[] = [];
+  text = text.replace(/\\begin\{([^}]+)\}([\s\S]*?)\\end\{\1\}/g, (match) => {
+    environmentBlocks.push(match);
+    return `___ENVIRONMENT_${environmentBlocks.length - 1}___`;
   });
 
   // Enhanced LaTeX detection - now supports multiple delimiters and more patterns
@@ -385,6 +393,22 @@ export const renderLatex = (text: string, comments: Comment[] = []): string => {
       });
     } catch {
       return escapeHtml(mathContent);
+    }
+  });
+  
+  // Restore environment blocks (array, cases, etc.)
+  text = text.replace(/___ENVIRONMENT_(\d+)___/g, (match, index) => {
+    const envContent = environmentBlocks[parseInt(index)];
+    try {
+      // Render environments in display mode for proper formatting
+      return katex.renderToString(envContent, {
+        throwOnError: false,
+        displayMode: true,
+        strict: false,
+        trust: true,
+      });
+    } catch {
+      return escapeHtml(envContent);
     }
   });
 
